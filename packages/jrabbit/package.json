@@ -1,0 +1,9 @@
+{
+  "name": "jrabbit",
+  "version": "0.1.0",
+  "description": "Point at your UI. Your coding agent fixes it.",
+  "license": "MIT",
+  "bin": { "jrabbit": "bin/jrabbit.js" },
+  "files": ["bin"],
+  "keywords": ["mcp", "claude-code", "codex", "design", "feedback"]
+}

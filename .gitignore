@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.env
+.env.*
+
+# jrabbit local store: only rules are versioned
+.jrabbit/*
+!.jrabbit/rules/
+
+# internal strategy docs: not part of the open source repo
+docs/
