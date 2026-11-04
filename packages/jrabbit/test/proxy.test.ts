@@ -1,0 +1,46 @@
+import { Readable } from "node:stream";
+import { text } from "node:stream/consumers";
+import { describe, expect, it } from "vitest";
+import { HtmlInjector } from "../src/server/proxy.js";
+
+const run = (chunks: string[], snippet = "<X>") => text(Readable.from(chunks.map((c) => Buffer.from(c))).pipe(new HtmlInjector(snippet)));
+
+describe("HtmlInjector", () => {
+  it("inserts after <head>", async () => {
+    expect(await run(["<!doctype html><html><head><title>a</title></head><body></body></html>"])).toBe(
+      "<!doctype html><html><head><X><title>a</title></head><body></body></html>",
+    );
+  });
+
+  it("handles <head> with attributes split across chunks", async () => {
+    expect(await run(["<html><he", 'ad lang="en">', "<meta>"])).toBe('<html><head lang="en"><X><meta>');
+  });
+
+  it("does not match <header>", async () => {
+    expect(await run(["<body><header>hi</header>"])).toBe("<X><body><header>hi</header>");
+  });
+
+  it("falls back to the start when there is no head or body", async () => {
+    expect(await run(["<div>fragment</div>"])).toBe("<X><div>fragment</div>");
+  });
+
+  it("injects once", async () => {
+    expect(await run(["<head>", "<head>"])).toBe("<head><X><head>");
+  });
+
+  it("keeps multi-byte characters split across chunks", async () => {
+    const buf = Buffer.from("<head>ñandú");
+    const out = await text(Readable.from([buf.subarray(0, 8), buf.subarray(8)]).pipe(new HtmlInjector("<X>")));
+    expect(out).toBe("<head><X>ñandú");
+  });
+});
+
+describe("rebase", () => {
+  it("treats loopback names as the same host", async () => {
+    const { rebase } = await import("../src/server/proxy.js");
+    expect(rebase("http://127.0.0.1:3000/a?b#c", "http://localhost:3000", "http://localhost:4100")).toBe("http://localhost:4100/a?b#c");
+    expect(rebase("http://localhost:3001/a", "http://localhost:3000", "X")).toBeNull();
+    expect(rebase("https://evil.example/a", "http://localhost:3000", "X")).toBeNull();
+    expect(rebase("/relative", "http://localhost:3000", "X")).toBeNull();
+  });
+});

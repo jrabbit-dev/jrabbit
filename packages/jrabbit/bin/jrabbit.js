@@ -1,2 +1,2 @@
 #!/usr/bin/env node
-console.log("jrabbit is coming soon.");
+import "../dist/cli.js";

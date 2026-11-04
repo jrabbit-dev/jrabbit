@@ -1,0 +1,67 @@
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { Store, parseRule, serializeRule, slugify } from "../src/server/store.js";
+
+const PNG = "data:image/png;base64,iVBORw0KGgo=";
+
+const input = (comment: string) => ({
+  comment,
+  page: { url: "http://localhost:4100/", path: "/", title: "Home" },
+  viewport: { width: 1280, height: 800, dpr: 2 },
+  element: { selector: "main > h1", tag: "h1", text: "Hello", rect: { x: 0, y: 0, width: 10, height: 10 } },
+});
+
+async function store() {
+  const s = new Store(mkdtempSync(join(tmpdir(), "jrabbit-store-")));
+  await s.init();
+  return s;
+}
+
+describe("Store", () => {
+  it("keeps its data out of git except rules", async () => {
+    const s = await store();
+    expect(readFileSync(join(s.dir, ".gitignore"), "utf8")).toContain("!rules/");
+  });
+
+  it("numbers pins in order, also under concurrent writes", async () => {
+    const s = await store();
+    const pins = await Promise.all(["a", "b", "c"].map((c) => s.createPin(input(c), null, [])));
+    expect(pins.map((p) => p.n).sort()).toEqual([1, 2, 3]);
+    expect((await s.getPin("#2"))?.n).toBe(2);
+  });
+
+  it("stores the before shot and only deletes drafts", async () => {
+    const s = await store();
+    const pin = await s.createPin(input("x"), null, [], PNG);
+    expect(pin.shots.before).toBe(join(".jrabbit", "shots", `${pin.id}-before.png`));
+    expect(existsSync(join(s.root, pin.shots.before!))).toBe(true);
+
+    await s.updatePin(pin.id, (p) => s.setStatus(p, "open", "human"));
+    expect(await s.deletePin(pin.id)).toBe(false);
+  });
+
+  it("rejects non-PNG shots and paths outside the shots folder", async () => {
+    const s = await store();
+    await expect(s.saveShot("pin_1", "before", "data:text/html;base64,PGgxPg==")).rejects.toThrow();
+    expect(s.shotFile("../../etc/passwd")).toBeNull();
+    expect(s.shotFile(".jrabbit/shots/../pins/x.json")).toBeNull();
+  });
+
+  it("writes rules as markdown and round-trips them", async () => {
+    const s = await store();
+    const rule = await s.writeRule({ title: "Buttons use the accent color", body: "Primary CTAs use --accent.", source: ["#1"] });
+    expect(rule.slug).toBe("buttons-use-the-accent-color");
+    expect(rule.status).toBe("draft");
+    expect((await s.setRuleStatus(rule.slug, "approved"))?.status).toBe("approved");
+    const back = parseRule(rule.slug, serializeRule({ ...rule, status: "approved" }), rule.path);
+    expect(back).toMatchObject({ title: rule.title, body: rule.body, status: "approved", source: ["#1"] });
+  });
+});
+
+describe("slugify", () => {
+  it("makes safe file names", () => {
+    expect(slugify("Ñandú: Títulos  grandes!")).toBe("nandu-titulos-grandes");
+  });
+});

@@ -14,12 +14,45 @@
     "url": "https://github.com/jrabbit-dev/jrabbit/issues"
   },
   "type": "module",
-  "bin": { "jrabbit": "bin/jrabbit.js" },
-  "files": ["bin", "LICENSE"],
-  "engines": { "node": ">=20" },
+  "bin": {
+    "jrabbit": "bin/jrabbit.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
-  "keywords": ["mcp", "claude-code", "codex", "design", "feedback"]
+  "keywords": [
+    "mcp",
+    "claude-code",
+    "codex",
+    "design",
+    "feedback"
+  ],
+  "dependencies": {
+    "@jridgewell/trace-mapping": "^0.3.31",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "modern-screenshot": "^4.7.0",
+    "preact": "^11.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
 }
