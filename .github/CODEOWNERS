@@ -1,0 +1,7 @@
+# Every change needs review from a maintainer.
+*                     @ftosses
+
+# Security-sensitive paths
+/SECURITY.md          @ftosses
+/.github/             @ftosses
+/packages/*/package.json @ftosses

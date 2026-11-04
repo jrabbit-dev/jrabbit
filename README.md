@@ -28,6 +28,12 @@ Everything is driven from the agent. The UI is only for what needs eyes.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Framework adapters (Vue, Svelte, Astro…) are especially welcome.
 
+## Security
+
+jrabbit is local by default: nothing leaves your machine unless you share it. Read the [security model](SECURITY.md#security-model). Report vulnerabilities privately, never in public issues; see [SECURITY.md](SECURITY.md).
+
 ## License
 
-[MIT](LICENSE)
+The code is [MIT](LICENSE). The jrabbit name and logo are trademarks and are not covered by the MIT License; see [TRADEMARK.md](TRADEMARK.md).
+
+Contributions are accepted under the [Developer Certificate of Origin](DCO). This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).

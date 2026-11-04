@@ -2,5 +2,10 @@
   "name": "jrabbit-monorepo",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jrabbit-dev/jrabbit.git"
+  },
+  "engines": { "node": ">=20" },
   "workspaces": ["packages/*"]
 }

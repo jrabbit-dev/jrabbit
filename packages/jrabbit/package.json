@@ -3,7 +3,23 @@
   "version": "0.1.0",
   "description": "Point at your UI. Your coding agent fixes it.",
   "license": "MIT",
+  "author": "Tomás Osses (https://github.com/ftosses)",
+  "homepage": "https://github.com/jrabbit-dev/jrabbit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jrabbit-dev/jrabbit.git",
+    "directory": "packages/jrabbit"
+  },
+  "bugs": {
+    "url": "https://github.com/jrabbit-dev/jrabbit/issues"
+  },
+  "type": "module",
   "bin": { "jrabbit": "bin/jrabbit.js" },
-  "files": ["bin"],
+  "files": ["bin", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "keywords": ["mcp", "claude-code", "codex", "design", "feedback"]
 }

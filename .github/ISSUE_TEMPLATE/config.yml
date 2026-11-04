@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/jrabbit-dev/jrabbit/security/advisories/new
+    about: Never report vulnerabilities in public issues. Use private reporting.
+  - name: Code of conduct concern
+    url: https://github.com/jrabbit-dev/jrabbit/blob/main/CODE_OF_CONDUCT.md#enforcement
+    about: Report privately to conduct@jrabbit.dev.

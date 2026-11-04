@@ -1,0 +1,30 @@
+name: Bug report
+description: Something does not work as expected. Not for security issues.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "**Security vulnerability?** Do not file it here. Use [private reporting](https://github.com/jrabbit-dev/jrabbit/security/advisories/new)."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "jrabbit 0.2.0, Node 24, macOS 26, Next.js 16, Claude Code"
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "Before attaching screenshots or `.jrabbit/` files, remove anything private: client names, tokens, personal data."
