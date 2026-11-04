@@ -25,6 +25,12 @@ export interface PinElement {
   text: string;
   rect: Rect;
   component?: string;
+  /** Class names as written on the element. */
+  classes?: string[];
+  /** A few identifying attributes: id, role, aria-label, alt, href, src, data-testid… */
+  attrs?: Record<string, string>;
+  /** Computed styles that are set to something other than the browser default. */
+  styles?: Record<string, string>;
 }
 
 export interface PinEvent {
@@ -92,10 +98,14 @@ export interface NewPinInput {
   shot?: string | null;
 }
 
+/** none: no agent (CLI review). connected: agent attached but not waiting. listening: in wait_for_feedback. */
+export type AgentState = "none" | "connected" | "listening";
+
 export interface OverlayState {
   pins: Pin[];
   rules: Rule[];
   target: string | null;
+  agent: AgentState;
 }
 
 export type ServerEvent =

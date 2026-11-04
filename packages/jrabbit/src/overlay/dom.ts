@@ -109,15 +109,56 @@ export function reactDebug(el: Element): { entries: DebugEntry[]; component?: st
 
 // ---------- capture ----------
 
+/** Computed styles worth telling the agent about. Size comes from the rect. */
+const STYLE_PROPS = [
+  "display", "position", "margin", "padding", "gap", "flex-direction", "justify-content", "align-items",
+  "grid-template-columns", "color", "background-color", "background-image", "border", "border-radius",
+  "box-shadow", "opacity", "font-family", "font-size", "font-weight", "line-height", "letter-spacing",
+  "text-align", "text-transform", "object-fit", "mix-blend-mode", "filter", "z-index",
+];
+
+/** Browser defaults: leaving them out keeps the pin short. */
+const DEFAULTS = new Set(["", "none", "normal", "auto", "0px", "rgba(0, 0, 0, 0)", "static", "start", "fill", "row", "block", "inline"]);
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+export function stylesOf(el: Element): Record<string, string> {
+  const cs = getComputedStyle(el);
+  const out: Record<string, string> = {};
+  for (const prop of STYLE_PROPS) {
+    const v = cs.getPropertyValue(prop).trim();
+    if (DEFAULTS.has(v) || (prop === "opacity" && v === "1") || (prop === "border" && /^0px none/.test(v))) continue;
+    out[prop] = clip(v, 120);
+  }
+  return out;
+}
+
+const ATTRS = ["id", "role", "aria-label", "alt", "title", "href", "src", "placeholder", "type", "name", "data-testid"];
+
+export function attrsOf(el: Element): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of ATTRS) {
+    const v = el.getAttribute(name);
+    if (!v || v.startsWith("data:")) continue;
+    out[name] = clip(v, 160);
+  }
+  return out;
+}
+
 export function describe(el: Element): PinElement {
   const r = el.getBoundingClientRect();
   const { component } = reactDebug(el);
+  const classes = Array.from(el.classList).slice(0, 24);
+  const attrs = attrsOf(el);
   return {
     selector: selectorFor(el),
     tag: el.tagName.toLowerCase(),
     text: textOf(el),
     rect: { x: Math.round(r.x + scrollX), y: Math.round(r.y + scrollY), width: Math.round(r.width), height: Math.round(r.height) },
     ...(component ? { component } : {}),
+    ...(classes.length ? { classes } : {}),
+    ...(Object.keys(attrs).length ? { attrs } : {}),
+    styles: stylesOf(el),
   };
 }
 
@@ -129,11 +170,17 @@ function backgroundOf(el: Element): string {
   return "#ffffff";
 }
 
-/** PNG data URL of the element, at device resolution, capped at 1600px per side. */
+/**
+ * Longest side of a screenshot, in pixels. Vision models downscale anything much larger,
+ * so bigger shots only cost the agent context.
+ */
+const MAX_SHOT_SIDE = 1200;
+
+/** PNG data URL of the element, at up to 2x device resolution, capped at MAX_SHOT_SIDE. */
 export async function capture(el: Element, host: Element): Promise<string | null> {
   const r = el.getBoundingClientRect();
   if (r.width < 1 || r.height < 1) return null;
-  const scale = Math.min(window.devicePixelRatio || 1, 1600 / Math.max(r.width, r.height));
+  const scale = Math.min(window.devicePixelRatio || 1, 2, MAX_SHOT_SIDE / Math.max(r.width, r.height));
   try {
     return await domToPng(el, {
       scale,

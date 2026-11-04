@@ -138,6 +138,10 @@ export function forward(req: http.IncomingMessage, res: http.ServerResponse, opt
       const injectable =
         type.includes("text/html") && encoding === "identity" && req.method !== "HEAD" && up.statusCode !== 204;
       if (injectable) {
+        // A CSP on the document would block the injected overlay script (and its styles).
+        // Reviews are local and loopback-only, so the page is served without it.
+        // Report-only policies are left alone: they never block.
+        delete out["content-security-policy"];
         delete out["content-length"];
         delete out["transfer-encoding"];
         res.writeHead(up.statusCode ?? 200, up.statusMessage, out);
@@ -190,6 +194,26 @@ export function forwardUpgrade(req: http.IncomingMessage, socket: Duplex, head: 
   socket.on("error", close);
   upstream.on("close", () => socket.destroy());
   socket.on("close", () => upstream.destroy());
+}
+
+/**
+ * Check that something is listening at the target. TCP only: an HTTP request
+ * would make dev servers compile the page, which can take many seconds.
+ * Returns null when reachable, or a short reason.
+ */
+export function probe(target: URL, timeoutMs = 2000): Promise<string | null> {
+  const port = Number(target.port || (target.protocol === "https:" ? 443 : 80));
+  const host = target.hostname.replace(/^\[|\]$/g, "");
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port });
+    const finish = (reason: string | null) => {
+      socket.destroy();
+      resolve(reason);
+    };
+    socket.setTimeout(timeoutMs, () => finish("timed out"));
+    socket.once("connect", () => finish(null));
+    socket.once("error", (err: NodeJS.ErrnoException) => finish(err.code ?? err.message));
+  });
 }
 
 function escapeHtml(s: string): string {

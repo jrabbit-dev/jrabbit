@@ -1,5 +1,10 @@
 import type { NewPinInput, Pin, ServerEvent } from "../shared/types.js";
 
+/** live: connected. offline: jrabbit is not running. expired: jrabbit restarted with another token. */
+export type Connection = "connecting" | "live" | "offline" | "expired";
+
+const RETRY_MS = 2000;
+
 export class Api {
   constructor(private token: string) {}
 
@@ -23,11 +28,45 @@ export class Api {
 
   shotUrl = (rel: string) => `/__jrabbit/shots/${rel.split("/").pop()}?t=${this.token}`;
 
-  events(onEvent: (e: ServerEvent) => void): () => void {
-    const source = new EventSource(`/__jrabbit/api/events?t=${this.token}`);
-    for (const type of ["state", "capture-after", "toast"]) {
-      source.addEventListener(type, (e) => onEvent(JSON.parse((e as MessageEvent).data)));
+  /** Why the event stream dropped: our token is no longer valid, or jrabbit is gone. */
+  private async diagnose(): Promise<"expired" | "offline" | "live"> {
+    try {
+      const res = await fetch(`/__jrabbit/api/ping?t=${this.token}`, { cache: "no-store" });
+      if (res.status === 401) return "expired";
+      return res.ok ? "live" : "offline";
+    } catch {
+      return "offline";
     }
-    return () => source.close();
+  }
+
+  /** Server events, reconnecting on its own while jrabbit restarts. Returns a cleanup function. */
+  events(onEvent: (e: ServerEvent) => void, onConnection: (c: Connection) => void): () => void {
+    let source: EventSource | null = null;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+
+    const connect = () => {
+      if (stopped) return;
+      source = new EventSource(`/__jrabbit/api/events?t=${this.token}`);
+      source.onopen = () => onConnection("live");
+      source.onerror = async () => {
+        source?.close();
+        const status = await this.diagnose();
+        if (stopped) return;
+        onConnection(status === "live" ? "connecting" : status);
+        // An expired token never comes back: the page must reload to get the new one.
+        if (status !== "expired") retry = setTimeout(connect, RETRY_MS);
+      };
+      for (const type of ["state", "capture-after", "toast"]) {
+        source.addEventListener(type, (e) => onEvent(JSON.parse((e as MessageEvent).data)));
+      }
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (retry) clearTimeout(retry);
+      source?.close();
+    };
   }
 }

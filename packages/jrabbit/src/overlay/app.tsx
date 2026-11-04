@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { OverlayState, Pin, Rule } from "../shared/types.js";
-import type { Api } from "./api.js";
+import type { Api, Connection } from "./api.js";
 import { capture, describe, findElement, reactDebug } from "./dom.js";
 import { rabbitPath } from "./styles.js";
 
@@ -24,7 +24,9 @@ const px = (n: number) => `${Math.round(n)}px`;
 const isOurs = (e: Event, host: HTMLElement) => e.composedPath().includes(host);
 
 export function App({ api, host }: Props) {
-  const [state, setState] = useState<OverlayState>({ pins: [], rules: [], target: null });
+  const [state, setState] = useState<OverlayState>({ pins: [], rules: [], target: null, agent: "none" });
+  const [connection, setConnection] = useState<Connection>("connecting");
+  const live = connection === "live";
   const [mode, setMode] = useState<Mode>("idle");
   const [hover, setHover] = useState<{ rect: DOMRect; label: string } | null>(null);
   const [target, setTarget] = useState<Element | null>(null);
@@ -53,7 +55,7 @@ export function App({ api, host }: Props) {
           }
           await api.after(e.id, el ? await capture(el, host) : null).catch(() => undefined);
         }
-      }),
+      }, setConnection),
     [],
   );
 
@@ -97,13 +99,18 @@ export function App({ api, host }: Props) {
       if (e.key === "Escape") {
         if (target) setTarget(null);
         else setMode("idle");
-      } else if (!typing && (e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      } else if (live && !typing && (e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setMode((m) => (m === "point" ? "idle" : "point"));
       }
     };
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
-  }, [target]);
+  }, [target, live]);
+
+  // Leave point mode if the connection drops: pins could not be saved.
+  useEffect(() => {
+    if (!live) setMode("idle");
+  }, [live]);
 
   // Markers follow scroll, resize and layout changes.
   useEffect(() => {
@@ -123,9 +130,14 @@ export function App({ api, host }: Props) {
   const draftRules = state.rules.filter((r) => r.status === "draft");
 
   const send = async () => {
-    const { sent } = await api.send();
-    setMode("idle");
-    showToast(`Sent ${sent} pin${sent === 1 ? "" : "s"} to your agent`);
+    try {
+      const { sent } = await api.send();
+      setMode("idle");
+      const pins = `${sent} pin${sent === 1 ? "" : "s"}`;
+      showToast(state.agent === "none" ? `Saved ${pins}. No agent connected yet.` : `Sent ${pins} to your agent`);
+    } catch {
+      showToast("Could not send. Is jrabbit still running?");
+    }
   };
 
   return (
@@ -163,14 +175,20 @@ export function App({ api, host }: Props) {
         <span class="logo" title="jrabbit">
           <Rabbit />
         </span>
-        <button aria-pressed={mode === "point"} onClick={() => setMode(mode === "point" ? "idle" : "point")} title="Point at an element (P)">
+        <Status connection={connection} state={state} />
+        <button
+          aria-pressed={mode === "point"}
+          disabled={!live}
+          onClick={() => setMode(mode === "point" ? "idle" : "point")}
+          title="Point at an element (P)"
+        >
           Point<kbd>P</kbd>
         </button>
         <button aria-pressed={panel !== null} onClick={() => setPanel(panel ? null : "pins")}>
           Pins {state.pins.filter((p) => p.status !== "approved").length}
           {draftRules.length > 0 && ` · Rules ${draftRules.length}`}
         </button>
-        <button class="send" disabled={drafts.length === 0} onClick={send}>
+        <button class="send" disabled={!live || drafts.length === 0} onClick={send}>
           Send {drafts.length || ""}
         </button>
       </div>
@@ -179,6 +197,57 @@ export function App({ api, host }: Props) {
     </div>
   );
 }
+
+/** Where things stand, in one glance: is jrabbit up, and is an agent on the other end. */
+function Status({ connection, state }: { connection: Connection; state: OverlayState }) {
+  let tone: "ok" | "busy" | "idle" | "error" = "idle";
+  let label: string;
+  let hint: string;
+  if (connection === "offline") {
+    tone = "error";
+    label = "Stopped";
+    hint = "jrabbit is not running. Ask your agent to open the review again.";
+  } else if (connection === "expired") {
+    tone = "error";
+    label = "Session ended";
+    hint = "jrabbit restarted. Reload the page to reconnect.";
+  } else if (connection === "connecting") {
+    label = "Connecting…";
+    hint = "Connecting to jrabbit";
+  } else {
+    const working = state.pins.filter((p) => p.status === "open" && p.deliveredAt).map((p) => `#${p.n}`);
+    if (state.agent === "none") {
+      label = "No agent";
+      hint = "Pins are saved locally. Your agent receives them when it calls wait_for_feedback.";
+    } else if (working.length) {
+      tone = "busy";
+      label = `Working on ${working.slice(0, 3).join(" ")}${working.length > 3 ? "…" : ""}`;
+      hint = "Your agent is changing the code for these pins.";
+    } else if (state.agent === "listening") {
+      tone = "ok";
+      label = "Listening";
+      hint = "Your agent is waiting. Point, comment, then Send.";
+    } else {
+      tone = "busy";
+      label = "Agent connected";
+      hint = "Your agent is connected. Pins you send wait until it asks for them.";
+    }
+  }
+  return (
+    <span class="status" data-tone={tone} title={hint} role="status" aria-live="polite">
+      <i aria-hidden="true" />
+      {label}
+      {connection === "expired" && (
+        <button class="reload" onClick={() => location.reload()}>
+          Reload
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** What the human reads on a pin: "open" splits into sent (not picked up yet) and working. */
+const statusLabel = (p: Pin) => (p.status === "open" ? (p.deliveredAt ? "working" : "sent") : p.status);
 
 function Marker({ pin, onClick }: { pin: Pin; onClick: () => void }) {
   const el = findElement(pin.element.selector, pin.element.text);
@@ -202,6 +271,7 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
   const { el, host, api, onSelect, onDone } = props;
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => ref.current?.focus(), [el]);
 
@@ -213,6 +283,7 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
   const submit = async () => {
     if (!comment.trim() || busy) return;
     setBusy(true);
+    setError(false);
     try {
       const pin = await api.createPin({
         comment,
@@ -225,6 +296,7 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
       onDone(pin);
     } catch {
       setBusy(false);
+      setError(true);
     }
   };
 
@@ -243,6 +315,7 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
         }}
       />
+      {error && <p class="error">Could not save the pin. Is jrabbit still running?</p>}
       <div class="row">
         <button
           class="btn grow"
@@ -297,8 +370,8 @@ function PinItem({ pin, api }: { pin: Pin; api: Api }) {
     <div class="item">
       <header>
         <span class="n">#{pin.n}</span>
-        <span class="badge" data-status={pin.status}>
-          {pin.status}
+        <span class="badge" data-status={statusLabel(pin)}>
+          {statusLabel(pin)}
         </span>
       </header>
       <p>{pin.comment}</p>

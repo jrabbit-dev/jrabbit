@@ -1,7 +1,8 @@
+import net from "node:net";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
 import { describe, expect, it } from "vitest";
-import { HtmlInjector } from "../src/server/proxy.js";
+import { HtmlInjector, probe } from "../src/server/proxy.js";
 
 const run = (chunks: string[], snippet = "<X>") => text(Readable.from(chunks.map((c) => Buffer.from(c))).pipe(new HtmlInjector(snippet)));
 
@@ -42,5 +43,16 @@ describe("rebase", () => {
     expect(rebase("http://localhost:3001/a", "http://localhost:3000", "X")).toBeNull();
     expect(rebase("https://evil.example/a", "http://localhost:3000", "X")).toBeNull();
     expect(rebase("/relative", "http://localhost:3000", "X")).toBeNull();
+  });
+});
+
+describe("probe", () => {
+  it("returns null when something listens and a reason when nothing does", async () => {
+    const server = net.createServer();
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as net.AddressInfo;
+    expect(await probe(new URL(`http://127.0.0.1:${port}/`))).toBeNull();
+    await new Promise((r) => server.close(r));
+    expect(await probe(new URL(`http://127.0.0.1:${port}/`))).toBe("ECONNREFUSED");
   });
 });

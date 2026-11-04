@@ -1,0 +1,1 @@
+Set up jrabbit in this project: read https://jrabbit.dev/start.md and follow it. When it's ready, open a review of my local dev server.

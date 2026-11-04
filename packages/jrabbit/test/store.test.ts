@@ -60,6 +60,41 @@ describe("Store", () => {
   });
 });
 
+describe("Store across processes", () => {
+  it("keeps the same token across restarts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jrabbit-token-"));
+    const first = await new Store(root).token();
+    expect(first).toMatch(/^[\w-]{32,}$/);
+    expect(await new Store(root).token()).toBe(first);
+  });
+
+  it("agrees on one token when two servers start at once", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jrabbit-token-"));
+    const [a, b] = await Promise.all([new Store(root).token(), new Store(root).token()]);
+    expect(a).toBe(b);
+  });
+
+  it("numbers pins uniquely when two stores share a project", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jrabbit-shared-"));
+    const a = new Store(root);
+    const b = new Store(root);
+    const pins = await Promise.all([a, b, a, b].map((s, i) => s.createPin(input(`c${i}`), null, [])));
+    expect(pins.map((p) => p.n).sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it("delivers each sent pin to only one agent session", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jrabbit-claim-"));
+    const a = new Store(root);
+    const b = new Store(root);
+    const pin = await a.createPin(input("x"), null, []);
+    await a.updatePin(pin.id, (p) => a.setStatus(p, "open", "human"));
+    const [ca, cb] = await Promise.all([a.claimUndelivered(), b.claimUndelivered()]);
+    expect(ca.length + cb.length).toBe(1);
+    expect((await a.getPin(pin.id))?.deliveredAt).toBeTruthy();
+    expect(await a.claimUndelivered()).toEqual([]);
+  });
+});
+
 describe("slugify", () => {
   it("makes safe file names", () => {
     expect(slugify("Ñandú: Títulos  grandes!")).toBe("nandu-titulos-grandes");

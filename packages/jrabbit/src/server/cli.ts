@@ -17,8 +17,9 @@ Usage
   jrabbit --version
   jrabbit --help
 
-Install in Claude Code
-  claude mcp add jrabbit -- npx -y jrabbit
+Install
+  Claude Code  claude mcp add jrabbit -- npx -y jrabbit
+  Codex        codex mcp add jrabbit -- npx -y jrabbit
 
 Environment
   JRABBIT_ROOT       Project root (default: current directory)
@@ -43,8 +44,13 @@ async function main(): Promise<void> {
       console.error("Usage: jrabbit open <url>");
       process.exit(1);
     }
-    await store.init();
-    const reviewUrl = await review.start(url, port);
+    let reviewUrl: string;
+    try {
+      reviewUrl = await review.start(url, port);
+    } catch (err) {
+      console.error(`jrabbit: ${(err as Error).message}`);
+      process.exit(1);
+    }
     console.log(`jrabbit reviewing ${url}\n→ ${reviewUrl}\nPins are saved in ${store.dir}. Ctrl+C to stop.`);
     review.on("sent", (pins) => {
       for (const p of pins) {

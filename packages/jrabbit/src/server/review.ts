@@ -1,12 +1,13 @@
 import http from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
-import { createReadStream, existsSync } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
+import { createReadStream, existsSync, watch, type FSWatcher } from "node:fs";
+import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
-import { forward, forwardUpgrade, rebase, type ProxyOptions } from "./proxy.js";
+import { forward, forwardUpgrade, probe, rebase, type ProxyOptions } from "./proxy.js";
 import { SourceResolver } from "./source.js";
 import type { Store } from "./store.js";
-import type { NewPinInput, OverlayState, Pin, ServerEvent } from "../shared/types.js";
+import type { AgentState, NewPinInput, OverlayState, Pin, ServerEvent } from "../shared/types.js";
 import { log } from "./log.js";
 
 const MAX_BODY = 25 * 1024 * 1024;
@@ -15,6 +16,7 @@ const PREFIX = "/__jrabbit";
 export interface ReviewEvents {
   /** The human pressed Send, or reopened a pin with a note. */
   sent: [Pin[]];
+  /** Pins or rules changed, in this process or another one on the same project. */
   changed: [];
 }
 
@@ -23,8 +25,13 @@ export interface ReviewEvents {
  * injected, plus the overlay's API under /__jrabbit. Binds to loopback only.
  */
 export class ReviewServer extends EventEmitter<ReviewEvents> {
-  readonly token = randomBytes(24).toString("base64url");
+  /** Set by start(); shared by every jrabbit process on the project (see Store.token). */
+  token = "";
+  agent: AgentState = "none";
   private servers: http.Server[] = [];
+  private watchers: FSWatcher[] = [];
+  private watchTimer: NodeJS.Timeout | null = null;
+  private agentTimer: NodeJS.Timeout | null = null;
   private clients = new Set<http.ServerResponse>();
   private pendingAfter = new Map<string, { selector: string; text: string; path: string; done: (pin: Pin | null) => void }>();
   private resolver: SourceResolver;
@@ -49,15 +56,82 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
 
   /** Start (or retarget) the review. Returns the URL to open in the browser. */
   async start(targetUrl: string, preferredPort = 4100): Promise<string> {
-    const target = new URL(targetUrl);
+    let target: URL;
+    try {
+      target = new URL(targetUrl);
+    } catch {
+      throw new Error(`"${targetUrl}" is not a URL. Pass the dev server URL, e.g. http://localhost:3000`);
+    }
     if (!/^https?:$/.test(target.protocol)) throw new Error("Only http(s) URLs can be reviewed");
+    await this.checkTarget(target);
+    await this.store.init();
+    this.token ||= await this.store.token();
     this.target = target;
-    if (!this.port) this.port = await this.listen(preferredPort);
+    if (!this.port) {
+      this.port = await this.listen(preferredPort);
+      this.watchStore();
+    }
     this.broadcastState();
     return this.origin! + (target.pathname === "/" ? "" : target.pathname) + target.search;
   }
 
+  /** Fail early, with a message the agent can act on, instead of proxying to nothing. */
+  private async checkTarget(target: URL): Promise<void> {
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname);
+    if (loopback && this.port && Number(target.port) === this.port) {
+      throw new Error(`${target.origin} is this jrabbit review itself. Pass the dev server URL instead.`);
+    }
+    const reason = await probe(target);
+    if (reason) {
+      throw new Error(
+        `Nothing is answering at ${target.origin} (${reason}). Start the dev server (e.g. npm run dev), check its port, then try again.`,
+      );
+    }
+    // Reviewing another jrabbit review would stack two overlays.
+    const res = await fetch(new URL(`${PREFIX}/overlay.js`, target), { method: "HEAD", signal: AbortSignal.timeout(1500) }).catch(() => null);
+    if (res?.ok && (res.headers.get("content-type") ?? "").includes("javascript")) {
+      throw new Error(`${target.origin} is a jrabbit review, not a dev server. Pass the URL of the app it reviews.`);
+    }
+  }
+
+  /** Pick up changes made by other jrabbit processes on the same store. */
+  private watchStore(): void {
+    const changed = () => {
+      if (this.watchTimer) clearTimeout(this.watchTimer);
+      this.watchTimer = setTimeout(() => this.broadcastState(), 150);
+    };
+    for (const sub of ["pins", "rules"]) {
+      try {
+        this.watchers.push(watch(join(this.store.dir, sub), changed));
+      } catch (err) {
+        log(`cannot watch ${sub}`, err);
+      }
+    }
+  }
+
+  /**
+   * The agent calls wait_for_feedback in a loop, leaving short gaps between calls.
+   * Going from "listening" to anything else is delayed so the overlay does not flicker.
+   */
+  setAgent(agent: AgentState): void {
+    if (this.agentTimer) clearTimeout(this.agentTimer);
+    this.agentTimer = null;
+    const apply = () => {
+      if (this.agent === agent) return;
+      this.agent = agent;
+      if (this.port) this.broadcastState();
+    };
+    if (this.agent === "listening" && agent !== "listening") {
+      this.agentTimer = setTimeout(apply, 1500);
+      this.agentTimer.unref();
+    } else apply();
+  }
+
   async stop(): Promise<void> {
+    for (const w of this.watchers) w.close();
+    this.watchers = [];
+    if (this.watchTimer) clearTimeout(this.watchTimer);
+    if (this.agentTimer) clearTimeout(this.agentTimer);
     for (const c of this.clients) c.end();
     await Promise.all(this.servers.map((s) => new Promise((r) => s.close(r))));
     this.servers = [];
@@ -104,6 +178,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
   }
 
   private authorized(req: http.IncomingMessage, url: URL): boolean {
+    if (!this.token) return false;
     const given = String(req.headers["x-jrabbit-token"] ?? url.searchParams.get("t") ?? "");
     const a = Buffer.from(given);
     const b = Buffer.from(this.token);
@@ -149,6 +224,8 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
     }
 
     if (!this.authorized(req, url)) return json(res, 401, { error: "unauthorized" });
+
+    if (path === "/api/ping" && req.method === "GET") return json(res, 200, { ok: true });
 
     if (path.startsWith("/shots/") && req.method === "GET") {
       const file = this.store.shotFile(`.jrabbit/shots/${path.slice("/shots/".length)}`);
@@ -303,6 +380,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       pins: await this.store.listPins(),
       rules: await this.store.listRules(),
       target: this.target?.origin ?? null,
+      agent: this.agent,
     };
   }
 

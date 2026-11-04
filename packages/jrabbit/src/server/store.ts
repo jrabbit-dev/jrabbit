@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { NewPinInput, Pin, PinStatus, Rule, RuleStatus, SourceLocation } from "../shared/types.js";
@@ -12,29 +12,87 @@ const GITIGNORE = `# jrabbit local store. Only rules/ is meant to be versioned.
 `;
 
 const now = () => new Date().toISOString();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A lock older than this is considered abandoned (its process crashed mid-write). */
+const STALE_LOCK_MS = 10_000;
 
 /** Files-only store in `<root>/.jrabbit/`. One JSON file per pin, PNG shots, Markdown rules. */
 export class Store {
   readonly dir: string;
   private queue: Promise<unknown> = Promise.resolve();
+  private ready: Promise<void> | null = null;
 
   constructor(readonly root: string) {
     this.dir = join(root, ".jrabbit");
   }
 
-  async init(): Promise<void> {
-    await mkdir(join(this.dir, "pins"), { recursive: true });
-    await mkdir(join(this.dir, "shots"), { recursive: true });
-    await mkdir(join(this.dir, "rules"), { recursive: true });
-    const gi = join(this.dir, ".gitignore");
-    if (!existsSync(gi)) await writeFile(gi, GITIGNORE);
+  init(): Promise<void> {
+    this.ready ??= (async () => {
+      await mkdir(join(this.dir, "pins"), { recursive: true });
+      await mkdir(join(this.dir, "shots"), { recursive: true });
+      await mkdir(join(this.dir, "rules"), { recursive: true });
+      const gi = join(this.dir, ".gitignore");
+      if (!existsSync(gi)) await writeFile(gi, GITIGNORE);
+    })().catch((err) => {
+      this.ready = null;
+      throw err;
+    });
+    return this.ready;
   }
 
-  /** Serialize writes so pin numbers and read-modify-write updates never race. */
+  /**
+   * Serialize writes so pin numbers and read-modify-write updates never race:
+   * an in-process queue plus a lock directory shared with other jrabbit processes
+   * on the same project (two agent sessions, or an agent and `jrabbit open`).
+   */
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(fn, fn);
+    const run = async () => {
+      await this.init();
+      const release = await this.lock();
+      try {
+        return await fn();
+      } finally {
+        await release();
+      }
+    };
+    const next = this.queue.then(run, run);
     this.queue = next.catch(() => undefined);
     return next;
+  }
+
+  private async lock(): Promise<() => Promise<void>> {
+    const dir = join(this.dir, ".lock");
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await mkdir(dir); // atomic: fails if another process holds the lock
+        return () => rm(dir, { recursive: true, force: true });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+        const age = await stat(dir).then((s) => Date.now() - s.mtimeMs, () => 0);
+        if (age > STALE_LOCK_MS) await rm(dir, { recursive: true, force: true });
+        else await sleep(Math.min(5 + attempt * 5, 50));
+      }
+    }
+  }
+
+  /**
+   * Token that authorizes the overlay. Kept in `.jrabbit/` (git-ignored) so a review tab
+   * keeps working when the agent restarts, and every jrabbit process on the project agrees.
+   */
+  token(): Promise<string> {
+    return this.exclusive(async () => {
+      const file = join(this.dir, "token");
+      try {
+        const existing = (await readFile(file, "utf8")).trim();
+        if (/^[\w-]{32,}$/.test(existing)) return existing;
+      } catch {
+        /* first run */
+      }
+      const token = randomBytes(24).toString("base64url");
+      await writeFile(file, token + "\n", { mode: 0o600 });
+      return token;
+    });
   }
 
   // ---------- pins ----------
@@ -108,6 +166,23 @@ export class Store {
       next.updatedAt = now();
       await this.writePin(next);
       return next;
+    });
+  }
+
+  /**
+   * Pins the human sent that no agent has received yet, marked as delivered in the same
+   * locked step so two agent sessions never both pick up the same pin.
+   */
+  claimUndelivered(): Promise<Pin[]> {
+    return this.exclusive(async () => {
+      const pins = (await this.listPins()).filter((p) => p.status === "open" && !p.deliveredAt);
+      const at = now();
+      for (const p of pins) {
+        p.deliveredAt = at;
+        p.updatedAt = at;
+        await this.writePin(p);
+      }
+      return pins;
     });
   }
 

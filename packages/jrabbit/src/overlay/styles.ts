@@ -3,11 +3,14 @@ export const css = `
 * { box-sizing: border-box; margin: 0; }
 .root {
   --bg: #0b0b0b; --fg: #f5f5f5; --muted: #8a8a8a; --line: rgba(255,255,255,.12);
-  --accent: #b4ff39; --shadow: 0 8px 24px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.06);
+  --accent: #b4ff39; --danger: #ff6b5e; --shadow: 0 8px 24px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.06);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color: var(--fg); -webkit-font-smoothing: antialiased;
 }
-button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; transition: scale 160ms var(--ease-out); }
+/* Press feedback. "scale" instead of "transform" so it never fights positioning transforms. */
+button:not(:disabled):active { scale: .97; }
 button:focus-visible, textarea:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 .bar {
@@ -16,14 +19,20 @@ button:focus-visible, textarea:focus-visible { outline: 1px solid var(--accent);
   background: var(--bg); border-radius: 10px; box-shadow: var(--shadow);
 }
 .bar button { height: 28px; padding: 0 10px; border-radius: 7px; white-space: nowrap; }
-.bar button:hover { background: rgba(255,255,255,.08); }
 .bar button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
 .bar .send { background: var(--accent); color: #000; }
-.bar .send:hover { background: var(--accent); filter: brightness(1.08); }
-.bar .send:disabled { background: transparent; color: var(--muted); cursor: default; }
+.bar button:disabled { background: transparent; color: var(--muted); cursor: default; }
 .logo { display: flex; align-items: center; padding: 0 8px 0 6px; }
 .logo svg { width: 24px; height: auto; display: block; }
 kbd { color: var(--muted); margin-left: 6px; font: inherit; }
+
+.status { display: flex; align-items: center; gap: 6px; padding: 0 10px 0 4px; color: var(--muted); white-space: nowrap; }
+.status i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); transition: background-color 200ms ease; }
+.status[data-tone="ok"] i { background: var(--accent); }
+.status[data-tone="busy"] i { background: var(--fg); }
+.status[data-tone="error"] { color: var(--fg); }
+.status[data-tone="error"] i { background: var(--danger); }
+.bar .reload { height: 22px; padding: 0 8px; margin-left: 2px; border-radius: 5px; background: var(--fg); color: var(--bg); }
 
 .hover {
   position: fixed; pointer-events: none; border: 1.5px solid var(--accent);
@@ -47,7 +56,9 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .composer {
   position: fixed; width: 300px; pointer-events: auto; padding: 10px;
   background: var(--bg); border-radius: 10px; box-shadow: var(--shadow);
+  transform-origin: top left; transition: opacity 150ms var(--ease-out), scale 150ms var(--ease-out);
 }
+.composer .error { color: var(--danger); margin-top: 8px; }
 .composer textarea {
   display: block; width: 100%; min-height: 72px; resize: vertical; padding: 8px;
   font: inherit; color: var(--fg); background: rgba(255,255,255,.05);
@@ -57,7 +68,6 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .row { display: flex; gap: 6px; align-items: center; justify-content: flex-end; margin-top: 8px; }
 .row .grow { flex: 1; }
 .btn { height: 26px; padding: 0 10px; border-radius: 6px; background: rgba(255,255,255,.08); }
-.btn:hover { background: rgba(255,255,255,.14); }
 .btn.primary { background: var(--fg); color: var(--bg); }
 .btn.accent { background: var(--accent); color: #000; }
 .btn:disabled { opacity: .5; cursor: default; }
@@ -65,6 +75,7 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .panel {
   position: fixed; right: 16px; bottom: 60px; width: 360px; max-height: min(70vh, 640px);
   overflow: auto; pointer-events: auto; background: var(--bg); border-radius: 10px; box-shadow: var(--shadow);
+  transform-origin: bottom right; transition: opacity 200ms var(--ease-out), scale 200ms var(--ease-out);
 }
 .tabs { display: flex; gap: 2px; padding: 6px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); }
 .tabs button { padding: 4px 8px; border-radius: 6px; color: var(--muted); }
@@ -76,7 +87,8 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .item .n { font-weight: 700; }
 .badge { padding: 0 6px; border-radius: 4px; background: rgba(255,255,255,.08); color: var(--muted); }
 .badge[data-status="draft"] { color: var(--fg); }
-.badge[data-status="open"] { color: #000; background: var(--accent); }
+.badge[data-status="sent"] { color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: none; }
+.badge[data-status="working"] { color: #000; background: var(--accent); }
 .badge[data-status="resolved"] { color: var(--bg); background: var(--fg); }
 .src { color: var(--muted); word-break: break-all; margin-top: 4px; }
 .note { color: var(--muted); margin-top: 4px; }
@@ -88,12 +100,35 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .rule-body { white-space: pre-wrap; color: var(--muted); margin-top: 4px; }
 
 .toast {
-  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); pointer-events: none;
+  position: fixed; left: 50%; bottom: 16px; translate: -50% 0; pointer-events: none;
   padding: 6px 12px; background: var(--bg); border-radius: 8px; box-shadow: var(--shadow);
-  animation: in .18s ease-out;
+  transition: opacity 200ms var(--ease-out), translate 200ms var(--ease-out);
 }
-@keyframes in { from { opacity: 0; transform: translate(-50%, 4px); } }
-@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* Enter states: panel grows from the toolbar, composer from the click, toast rises. */
+@starting-style {
+  .panel, .composer { opacity: 0; scale: .97; }
+  .toast { opacity: 0; translate: -50% 6px; }
+}
+
+/* Hover only where a real pointer exists, so taps don't leave stuck highlights. */
+@media (hover: hover) and (pointer: fine) {
+  .bar button:not(:disabled):not([aria-pressed="true"]):not(.send):not(.reload):hover { background: rgba(255,255,255,.08); }
+  .bar .send:not(:disabled):hover { filter: brightness(1.08); }
+  .btn:not(.primary):not(.accent):not(:disabled):hover { background: rgba(255,255,255,.14); }
+  .btn.primary:not(:disabled):hover, .btn.accent:not(:disabled):hover { filter: brightness(1.08); }
+}
+
+/* Keep fades (they help orientation), drop movement. */
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
+  button:not(:disabled):active { scale: none; }
+  .panel, .composer, .toast { transition: opacity 150ms ease; }
+  @starting-style {
+    .panel, .composer { scale: none; }
+    .toast { translate: -50% 0; }
+  }
+}
 `;
 
 /** 8-bit rabbit, 16×9 grid, running left. */

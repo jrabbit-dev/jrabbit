@@ -29,6 +29,11 @@ beforeAll(async () => {
   target = http.createServer((req, res) => {
     seen.push(req.headers);
     if (req.url === "/redirect") return res.writeHead(307, { location: `http://localhost:${port()}/login` }).end();
+    if (req.url === "/csp")
+      return res
+        .writeHead(200, { "content-type": "text/html", "content-security-policy": "script-src 'none'", "content-security-policy-report-only": "default-src 'self'" })
+        .end("<html><head></head></html>");
+    if (req.url === "/csp.js") return res.writeHead(200, { "content-type": "text/javascript", "content-security-policy": "default-src 'none'" }).end("1");
     res.writeHead(200, { "content-type": "text/html" }).end("<html><head><title>t</title></head><body>app</body></html>");
   });
   await new Promise<void>((r) => target.listen(0, "127.0.0.1", r));
@@ -58,6 +63,33 @@ describe("ReviewServer", () => {
     const last = seen.at(-1)!;
     expect(last.host).toBe(`127.0.0.1:${port()}`);
     expect(last.origin).toBe(`http://127.0.0.1:${port()}`);
+  });
+
+  it("drops the CSP only on HTML it injects into, so the overlay can load", async () => {
+    const html = await request("/csp");
+    expect(html.headers["content-security-policy"]).toBeUndefined();
+    expect(html.headers["content-security-policy-report-only"]).toBe("default-src 'self'");
+    expect(html.body).toContain("/__jrabbit/overlay.js");
+    expect((await request("/csp.js")).headers["content-security-policy"]).toBe("default-src 'none'");
+  });
+
+  it("answers ping only with a valid token, so the overlay can tell restart from shutdown", async () => {
+    expect((await request(`/__jrabbit/api/ping?t=${review.token}`)).status).toBe(200);
+    expect((await request("/__jrabbit/api/ping?t=stale")).status).toBe(401);
+  });
+
+  it("refuses to review itself", async () => {
+    await expect(review.start(base)).rejects.toThrow("this jrabbit review itself");
+  });
+
+  it("debounces the agent leaving so the indicator does not flicker between waits", async () => {
+    review.setAgent("listening");
+    review.setAgent("connected");
+    expect(review.agent).toBe("listening");
+    review.setAgent("listening");
+    await new Promise((r) => setTimeout(r, 1600));
+    expect(review.agent).toBe("listening");
+    review.setAgent("connected");
   });
 
   it("rewrites redirects to the target back to the review origin", async () => {
