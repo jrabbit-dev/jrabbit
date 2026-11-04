@@ -5,7 +5,7 @@ Thanks for helping. jrabbit is in early development, so the codebase moves fast.
 ## Getting started
 
 ```sh
-git clone https://github.com/<org>/jrabbit.git
+git clone https://github.com/jrabbit-dev/jrabbit.git
 cd jrabbit
 npm install
 ```
