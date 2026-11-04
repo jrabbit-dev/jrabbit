@@ -67,6 +67,7 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .composer .meta { color: var(--muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row { display: flex; gap: 6px; align-items: center; justify-content: flex-end; margin-top: 8px; }
 .row .grow { flex: 1; }
+.row.archive { margin: 0; padding: 10px 14px; justify-content: flex-start; }
 .btn { height: 26px; padding: 0 10px; border-radius: 6px; background: rgba(255,255,255,.08); }
 .btn.primary { background: var(--fg); color: var(--bg); }
 .btn.accent { background: var(--accent); color: #000; }

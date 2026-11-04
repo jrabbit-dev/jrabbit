@@ -46,7 +46,7 @@ codex mcp add jrabbit -- npx -y jrabbit@0.1.1
 }
 ```
 
-Other MCP clients: a stdio server with command `npx` and args `-y jrabbit@0.1.1`, started in the project root (or with `JRABBIT_ROOT` set to it).
+Other MCP clients: a stdio server with command `npx` and args `-y jrabbit@0.1.1`. jrabbit uses the workspace root the client shares over MCP; if the client shares none, it uses the folder it starts in. Set `JRABBIT_ROOT` to the project path to pin it.
 
 ## 3. Load it
 
@@ -74,6 +74,7 @@ Tell the human: in the browser tab that opened, press **P** to point at an eleme
 ## How a review works
 
 - `wait_for_feedback` returns each pin: comment, screenshot, selector and `file:line`.
-- Make the change, then call `resolve_feedback` with a short summary. jrabbit captures an after shot.
+- Make the change, then call `resolve_feedback` with a short summary. jrabbit captures an after shot. For several pins at once, pass `pins: [{ id, summary }]`.
 - The human approves or reopens. Reopened pins come back through `wait_for_feedback`.
-- If the human repeats the same kind of correction, call `propose_rule`. Rules live in `.jrabbit/rules/`, versioned with the repo, and apply only once the human approves them. Read them with `list_rules` before you start.
+- If the human repeats the same kind of correction, call `propose_rule`. Rules live in `.jrabbit/rules/`, versioned with the repo, and apply only once the human approves them. Read them with `list_rules` before you start. Fix a rule with `update_rule` (it goes back to draft) or drop a draft with `delete_rule`.
+- When the human asks to clear the board, call `archive_feedback`: approved pins move to `.jrabbit/archive/`.

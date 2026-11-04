@@ -5,6 +5,7 @@ import tls from "node:tls";
 import type { Duplex } from "node:stream";
 import { Transform, type TransformCallback } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
+import { rebase } from "../shared/url.js";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -70,24 +71,12 @@ export interface ProxyOptions {
   inject: string;
 }
 
-const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
 /**
- * If `url` points at `origin` (treating localhost, 127.0.0.1 and ::1 as the same host),
- * return it rebased onto `to`. Otherwise null.
+ * Drop `Domain=` so cookies land on the review host. Same host name as the dev server
+ * (see ReviewServer.origin) means they are shared with it too: cookies ignore the port.
  */
-export function rebase(url: string, origin: string, to: string): string | null {
-  let u: URL;
-  let o: URL;
-  try {
-    u = new URL(url);
-    o = new URL(origin);
-  } catch {
-    return null;
-  }
-  const sameHost = u.hostname === o.hostname || (LOOPBACK.has(u.hostname) && LOOPBACK.has(o.hostname));
-  if (u.protocol !== o.protocol || u.port !== o.port || !sameHost) return null;
-  return to + u.pathname + u.search + u.hash;
+export function hostOnlyCookies(cookies: string[]): string[] {
+  return cookies.map((c) => c.replace(/;\s*domain=[^;]*/gi, ""));
 }
 
 function rewriteRequestHeaders(
@@ -133,6 +122,7 @@ export function forward(req: http.IncomingMessage, res: http.ServerResponse, opt
         out[k] = v;
       }
       if (typeof out.location === "string") out.location = rebase(out.location, target.origin, proxyOrigin) ?? out.location;
+      if (out["set-cookie"]) out["set-cookie"] = hostOnlyCookies(out["set-cookie"] as string[]);
       const type = String(up.headers["content-type"] ?? "");
       const encoding = String(up.headers["content-encoding"] ?? "identity");
       const injectable =
@@ -228,3 +218,5 @@ function unreachablePage(target: URL, err: Error): string {
 <p>Start your dev server, then reload this page.</p>
 <script>setTimeout(()=>location.reload(),2000)</script></body>`;
 }
+
+export { rebase };

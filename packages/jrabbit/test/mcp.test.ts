@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createMcpServer, formatPin, searchHints } from "../src/server/mcp.js";
+import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { pathToFileURL } from "node:url";
+import { clientRoot, createMcpServer, formatPin, searchHints } from "../src/server/mcp.js";
 import { ReviewServer } from "../src/server/review.js";
 import { Store } from "../src/server/store.js";
 import type { Pin } from "../src/shared/types.js";
@@ -77,12 +79,26 @@ describe("MCP server", () => {
     const { tools } = await client.listTools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     expect(Object.keys(byName).sort()).toEqual(
-      ["get_feedback", "list_feedback", "list_rules", "open_review", "propose_rule", "reopen_feedback", "resolve_feedback", "status", "wait_for_feedback"],
+      [
+        "archive_feedback",
+        "delete_rule",
+        "get_feedback",
+        "list_feedback",
+        "list_rules",
+        "open_review",
+        "propose_rule",
+        "reopen_feedback",
+        "resolve_feedback",
+        "status",
+        "update_rule",
+        "wait_for_feedback",
+      ],
     );
     for (const t of tools) expect(t.annotations?.openWorldHint).toBe(false);
     expect(byName.status?.annotations?.readOnlyHint).toBe(true);
     expect(byName.list_feedback?.annotations?.readOnlyHint).toBe(true);
     expect(byName.resolve_feedback?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true });
+    expect(byName.delete_rule?.annotations?.destructiveHint).toBe(true);
   });
 
   it("offers a review prompt", async () => {
@@ -116,7 +132,8 @@ describe("MCP server", () => {
   it("opens a review of a running dev server", async () => {
     const res = await call("open_review", { url: targetUrl(), open: false });
     expect(res.isError).toBeFalsy();
-    expect(res.json.reviewUrl).toMatch(/^http:\/\/localhost:\d+/);
+    expect(res.json.reviewUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
+    expect(res.json.login).toContain("shares cookies");
     expect(review.origin).not.toBeNull();
   });
 
@@ -172,6 +189,75 @@ describe("MCP server", () => {
     const res = await call("status");
     expect(res.json).toMatchObject({ pins: { draft: 0, open: 1, resolved: 1, approved: 0 }, undelivered: 0, store: store.dir });
     expect(res.json.review.target).toBe(targetUrl().replace(/\/$/, ""));
+  });
+
+  it("resolves several pins in one call and reports the ones that failed", async () => {
+    await humanSends("Third");
+    await call("wait_for_feedback", { timeout_seconds: 1 });
+    const res = await call("resolve_feedback", {
+      pins: [
+        { id: "#2", summary: "Spacing to 16px" },
+        { id: "#3", summary: "Done" },
+        { id: "#99", summary: "x" },
+      ],
+    });
+    expect(res.isError).toBeFalsy();
+    expect(res.json.resolved.map((r: { pin: { n: number } }) => r.pin.n)).toEqual([2, 3]);
+    expect(res.json.errors).toHaveLength(1);
+    expect((await store.getPin("#3"))?.status).toBe("resolved");
+  });
+
+  it("refuses a resolve with neither id nor pins", async () => {
+    const res = await call("resolve_feedback", { summary: "x" });
+    expect(res.isError).toBe(true);
+  });
+
+  it("edits a rule back to draft and only deletes drafts", async () => {
+    const proposed = await call("propose_rule", { title: "Use the accent", rule: "CTAs use --accent.", source: ["#1"] });
+    const slug = proposed.json.slug ?? proposed.json.rule?.slug;
+    expect(slug).toBeTruthy();
+    await store.setRuleStatus(slug, "approved");
+
+    const refused = await call("delete_rule", { slug });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("Ask the human");
+
+    const edited = await call("update_rule", { slug, rule: "Primary CTAs use --accent." });
+    expect(JSON.stringify(edited.json)).toContain('"status":"draft"');
+
+    const deleted = await call("delete_rule", { slug });
+    expect(deleted.isError).toBeFalsy();
+    expect(await store.readRule(slug)).toBeNull();
+  });
+
+  it("archives only approved pins", async () => {
+    await store.updatePin((await store.getPin("#1"))!.id, (p) => store.setStatus(p, "approved", "human"));
+    const res = await call("archive_feedback");
+    expect(res.json.archived).toEqual(["#1"]);
+    expect((await store.listPins()).map((p) => p.n)).toEqual([2, 3]);
+  });
+});
+
+describe("client roots", () => {
+  it("picks the first file:// directory", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jrabbit-root-"));
+    expect(clientRoot(["https://example.com", pathToFileURL(join(dir, "missing")).href, pathToFileURL(dir).href])).toBe(dir);
+    expect(clientRoot([])).toBeNull();
+  });
+
+  it("uses the client's workspace as the project root", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jrabbit-ws-"));
+    const s = new Store(join(tmpdir(), "jrabbit-cwd-unused"));
+    const r = new ReviewServer(s, join(dir, "overlay.js"));
+    const server = createMcpServer(s, r, "test", { clientRoots: true });
+    const c = new Client({ name: "ide", version: "0" }, { capabilities: { roots: {} } });
+    c.setRequestHandler(ListRootsRequestSchema, () => ({ roots: [{ uri: pathToFileURL(dir).href, name: "ws" }] }));
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(b), c.connect(a)]);
+    const res = await c.callTool({ name: "status", arguments: {} });
+    const json = JSON.parse((res.content as Array<{ text: string }>)[0]!.text);
+    expect(json.store).toBe(join(dir, ".jrabbit"));
+    await c.close();
   });
 });
 

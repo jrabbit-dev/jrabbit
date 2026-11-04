@@ -185,6 +185,8 @@ export async function capture(el: Element, host: Element): Promise<string | null
     return await domToPng(el, {
       scale,
       backgroundColor: backgroundOf(el),
+      // The element's own margin would push it inside the shot and crop it.
+      style: { margin: "0" },
       filter: (node) => node !== host,
       timeout: 8000,
     });

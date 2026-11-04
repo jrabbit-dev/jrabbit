@@ -9,6 +9,7 @@ import { Store } from "../src/server/store.js";
 
 let target: http.Server;
 let review: ReviewServer;
+let store: Store;
 let base: string;
 const seen: http.IncomingHttpHeaders[] = [];
 
@@ -28,6 +29,7 @@ function request(path: string, opts: { method?: string; headers?: Record<string,
 beforeAll(async () => {
   target = http.createServer((req, res) => {
     seen.push(req.headers);
+    if (req.url === "/cookie") return res.writeHead(200, { "set-cookie": ["sid=1; Path=/; Domain=127.0.0.1; HttpOnly"] }).end();
     if (req.url === "/redirect") return res.writeHead(307, { location: `http://localhost:${port()}/login` }).end();
     if (req.url === "/csp")
       return res
@@ -38,7 +40,7 @@ beforeAll(async () => {
   });
   await new Promise<void>((r) => target.listen(0, "127.0.0.1", r));
   const root = mkdtempSync(join(tmpdir(), "jrabbit-review-"));
-  const store = new Store(root);
+  store = new Store(root);
   await store.init();
   const overlay = join(root, "overlay.js");
   writeFileSync(overlay, "/* overlay */");
@@ -96,6 +98,21 @@ describe("ReviewServer", () => {
     const res = await request("/redirect");
     expect(res.status).toBe(307);
     expect(res.headers.location).toBe(`${base}/login`);
+  });
+
+  it("uses the dev server's host name so both share the login cookies", async () => {
+    expect(base).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    const res = await request("/cookie");
+    expect(res.headers["set-cookie"]).toEqual(["sid=1; Path=/; HttpOnly"]);
+  });
+
+  it("lets the human discard rules and archive approved pins", async () => {
+    const rule = await store.writeRule({ title: "Tmp rule", body: "x", source: [] });
+    const del = await request(`/__jrabbit/api/rules/${rule.slug}`, { method: "DELETE", headers: auth() });
+    expect(del.status).toBe(200);
+    expect(await store.readRule(rule.slug)).toBeNull();
+    const archive = await request("/__jrabbit/api/archive", { method: "POST", headers: auth(), body: "{}" });
+    expect(JSON.parse(archive.body)).toEqual({ archived: 0 });
   });
 
   it("rejects foreign Host headers (DNS rebinding)", async () => {

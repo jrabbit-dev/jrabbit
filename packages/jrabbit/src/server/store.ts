@@ -19,12 +19,26 @@ const STALE_LOCK_MS = 10_000;
 
 /** Files-only store in `<root>/.jrabbit/`. One JSON file per pin, PNG shots, Markdown rules. */
 export class Store {
-  readonly dir: string;
+  private _root: string;
   private queue: Promise<unknown> = Promise.resolve();
   private ready: Promise<void> | null = null;
 
-  constructor(readonly root: string) {
-    this.dir = join(root, ".jrabbit");
+  constructor(root: string) {
+    this._root = root;
+  }
+
+  get root(): string {
+    return this._root;
+  }
+
+  get dir(): string {
+    return join(this._root, ".jrabbit");
+  }
+
+  /** Point the store at another project folder. Only before first use. */
+  useRoot(root: string): void {
+    if (this.ready) throw new Error("The store is already in use");
+    this._root = root;
   }
 
   init(): Promise<void> {
@@ -32,6 +46,7 @@ export class Store {
       await mkdir(join(this.dir, "pins"), { recursive: true });
       await mkdir(join(this.dir, "shots"), { recursive: true });
       await mkdir(join(this.dir, "rules"), { recursive: true });
+      await mkdir(join(this.dir, "archive", "shots"), { recursive: true });
       const gi = join(this.dir, ".gitignore");
       if (!existsSync(gi)) await writeFile(gi, GITIGNORE);
     })().catch((err) => {
@@ -136,9 +151,12 @@ export class Store {
       const pins = await this.listPins();
       const id = `pin_${randomBytes(4).toString("hex")}`;
       const at = now();
+      // Archived pins keep their numbers: never hand out a number twice.
+      const n = Math.max(await this.lastNumber(), ...pins.map((p) => p.n)) + 1;
+      await writeFile(join(this.dir, "last-n"), `${n}\n`);
       const pin: Pin = {
         id,
-        n: pins.reduce((max, p) => Math.max(max, p.n), 0) + 1,
+        n,
         status: "draft",
         comment: input.comment.trim(),
         page: input.page,
@@ -181,6 +199,38 @@ export class Store {
         p.deliveredAt = at;
         p.updatedAt = at;
         await this.writePin(p);
+      }
+      return pins;
+    });
+  }
+
+  private async lastNumber(): Promise<number> {
+    const n = Number((await readFile(join(this.dir, "last-n"), "utf8").catch(() => "0")).trim());
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  /**
+   * Move approved pins and their screenshots to `.jrabbit/archive/`, out of every list.
+   * Pass ids or numbers to archive only those (they must be approved). Returns what was archived.
+   */
+  archivePins(refs?: Array<string | number>): Promise<Pin[]> {
+    return this.exclusive(async () => {
+      const keys = refs?.map((r) => String(r).replace(/^#/, ""));
+      const pins = (await this.listPins()).filter(
+        (p) => p.status === "approved" && (!keys || keys.includes(p.id) || keys.includes(String(p.n))),
+      );
+      const archive = join(this.dir, "archive");
+      for (const pin of pins) {
+        for (const kind of ["before", "after"] as const) {
+          const rel = pin.shots[kind];
+          const abs = rel ? this.shotFile(rel) : null;
+          if (!abs || !existsSync(abs)) continue;
+          const to = join(archive, "shots", abs.split(/[\\/]/).pop()!);
+          await rename(abs, to);
+          pin.shots[kind] = relative(this.root, to);
+        }
+        await writeFile(join(archive, `${pin.id}.json`), JSON.stringify(pin, null, 2));
+        await rm(join(this.dir, "pins", `${pin.id}.json`), { force: true });
       }
       return pins;
     });
@@ -258,6 +308,32 @@ export class Store {
       };
       await writeFile(join(this.root, rule.path), serializeRule(rule));
       return rule;
+    });
+  }
+
+  /**
+   * Change a rule's title or text. An approved rule goes back to draft: the human
+   * approves the new wording before it applies.
+   */
+  updateRule(slug: string, change: { title?: string; body?: string }): Promise<Rule | null> {
+    return this.exclusive(async () => {
+      const rule = await this.readRule(slug);
+      if (!rule) return null;
+      if (change.title?.trim()) rule.title = change.title.trim();
+      if (change.body?.trim()) rule.body = change.body.trim();
+      rule.status = "draft";
+      await writeFile(join(this.root, rule.path), serializeRule(rule));
+      return rule;
+    });
+  }
+
+  /** Delete a rule file. Returns false when it does not exist. */
+  deleteRule(slug: string): Promise<boolean> {
+    return this.exclusive(async () => {
+      const rule = await this.readRule(slug);
+      if (!rule) return false;
+      await rm(join(this.root, rule.path), { force: true });
+      return true;
     });
   }
 

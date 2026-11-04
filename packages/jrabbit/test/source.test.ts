@@ -112,6 +112,41 @@ describe("SourceResolver", () => {
     expect(source).toMatchObject({ file: "src/Button.tsx", line: 2, component: "Button" });
   });
 
+  it("maps eval-source-map frames through the dev server", async () => {
+    const root = project();
+    writeFileSync(join(root, "src", "Button.tsx"), SOURCE);
+    const asked: string[] = [];
+    const resolver = new SourceResolver(root, async () => null, async (f) => {
+      asked.push(f.url);
+      return { file: "src/Button.tsx", line: 2, column: 10 };
+    });
+    const { source } = await resolver.resolve([
+      {
+        stack: [
+          "Error: react-stack-top-frame",
+          "    at exports.jsxDEV (webpack-internal:///(app-pages-browser)/../../node_modules/next/dist/compiled/react/cjs/react-jsx-dev-runtime.development.js:333:29)",
+          "    at Button (webpack-internal:///(app-pages-browser)/./src/Button.tsx:297:96)",
+        ].join("\n"),
+      },
+    ]);
+    expect(source).toMatchObject({ file: "src/Button.tsx", line: 2, column: 10, component: "Button" });
+    expect(asked).toEqual(["webpack-internal:///(app-pages-browser)/./src/Button.tsx"]);
+  });
+
+  it("resolves sources relative to the map, as Vite writes them", async () => {
+    const root = project();
+    const out = await transform(SOURCE, { loader: "tsx", jsx: "automatic", sourcemap: "external", sourcefile: "Button.tsx" });
+    writeFileSync(join(root, "src", "Button.tsx"), SOURCE);
+    writeFileSync(join(root, "src", "Button.gen.js"), out.code + "//# sourceMappingURL=Button.gen.js.map\n");
+    writeFileSync(join(root, "src", "Button.gen.js.map"), out.map);
+    const lines = out.code.split("\n");
+    const line = lines.findIndex((l) => l.includes('"button"'));
+    const url = pathToFileURL(join(root, "src", "Button.gen.js")).href;
+    const resolver = new SourceResolver(root, async () => null);
+    const loc = await resolver.resolveFrame({ fn: "Button", url, line: line + 1, column: lines[line]!.indexOf("jsx") + 1 });
+    expect(loc).toMatchObject({ file: "src/Button.tsx", line: 2 });
+  });
+
   it("maps http frames through the fetcher", async () => {
     const root = project();
     const gen = await build(root);

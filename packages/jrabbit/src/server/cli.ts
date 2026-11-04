@@ -22,7 +22,7 @@ Install
   Codex        codex mcp add jrabbit -- npx -y jrabbit
 
 Environment
-  JRABBIT_ROOT       Project root (default: current directory)
+  JRABBIT_ROOT       Project root (default: the client's workspace, else the current directory)
   JRABBIT_PORT       Preferred port for the review server (default: 4100)
   JRABBIT_NO_OPEN=1  Do not open the browser
 `;
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
     console.error(`Unknown command: ${cmd}\n\n${HELP}`);
     process.exit(1);
   }
-  await runMcp(store, review, VERSION);
+  await runMcp(store, review, VERSION, { clientRoots: !process.env.JRABBIT_ROOT });
 }
 
 main().catch((err) => {

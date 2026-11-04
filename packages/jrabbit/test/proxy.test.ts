@@ -46,6 +46,27 @@ describe("rebase", () => {
   });
 });
 
+describe("hostOnlyCookies", () => {
+  it("drops Domain so cookies stay on the review host", async () => {
+    const { hostOnlyCookies } = await import("../src/server/proxy.js");
+    expect(hostOnlyCookies(["sid=1; Path=/; Domain=localhost; HttpOnly", "a=2; domain=.example.com", "b=3"])).toEqual([
+      "sid=1; Path=/; HttpOnly",
+      "a=2",
+      "b=3",
+    ]);
+  });
+});
+
+describe("browserCommand", () => {
+  it("never goes through a shell, so & in a URL stays literal", async () => {
+    const { browserCommand } = await import("../src/server/open-browser.js");
+    const url = "http://localhost:4100/?a=1&b=2";
+    expect(browserCommand("darwin", url)).toEqual(["open", [url]]);
+    expect(browserCommand("win32", url)).toEqual(["rundll32", ["url.dll,FileProtocolHandler", url]]);
+    expect(browserCommand("linux", url)).toEqual(["xdg-open", [url]]);
+  });
+});
+
 describe("probe", () => {
   it("returns null when something listens and a reason when nothing does", async () => {
     const server = net.createServer();

@@ -109,25 +109,44 @@ export function displayPath(abs: string, root: string): string {
 
 type Fetcher = (url: string) => Promise<{ body: string; sourceMapHeader?: string } | null>;
 
+/**
+ * Maps a frame the dev server bundled with eval source maps (webpack `eval-source-map`),
+ * whose maps live inside the browser's `eval` and cannot be fetched.
+ */
+export type FrameMapper = (frame: RawFrame) => Promise<{ file: string; line: number; column?: number } | null>;
+
 interface Generated {
   map: TraceMap | null;
+  /** Where the map lives: `sources` are relative to it. */
+  mapUrl?: string;
 }
 
 /** Resolves React debug info (stacks or `_debugSource`) to project files via source maps. */
 export class SourceResolver {
   private cache = new Map<string, { at: number; value: Promise<Generated> }>();
-  /** Files outside this folder are never read or reported. */
-  private readonly top: string;
+  private tops = new Map<string, string>();
 
   /**
-   * @param root project root
+   * @param projectRoot project root, or a function returning it (it can change before the first review)
    * @param fetchHttp fetches a URL served by the dev server (already mapped to the target)
+   * @param mapEvalFrame maps `webpack-internal:` frames through the dev server
    */
   constructor(
-    private root: string,
+    private projectRoot: string | (() => string),
     private fetchHttp: Fetcher,
-  ) {
-    this.top = workspaceTop(root);
+    private mapEvalFrame?: FrameMapper,
+  ) {}
+
+  private get root(): string {
+    return typeof this.projectRoot === "string" ? this.projectRoot : this.projectRoot();
+  }
+
+  /** Files outside this folder are never read or reported. */
+  private get top(): string {
+    const root = this.root;
+    let top = this.tops.get(root);
+    if (!top) this.tops.set(root, (top = workspaceTop(root)));
+    return top;
   }
 
   async resolve(entries: DebugEntry[]): Promise<{ source: SourceLocation | null; chain: SourceLocation[] }> {
@@ -172,6 +191,20 @@ export class SourceResolver {
     const url = unwrapReactUrl(frame.url);
     if (/react-stack-top-frame|node:internal|^native$/.test(url)) return null;
 
+    const component = frame.fn && !/^(eval|Object\.|exports\.|Module\.)/.test(frame.fn) ? { component: frame.fn } : {};
+    if (url.startsWith("webpack-internal:") && this.mapEvalFrame && !isExternalSource(cleanSourcePath(url))) {
+      const mapped = await this.mapEvalFrame({ ...frame, url }).catch(() => null);
+      const abs = mapped && !isExternalSource(cleanSourcePath(mapped.file)) ? this.locate(cleanSourcePath(mapped.file)) : null;
+      if (abs) {
+        return {
+          file: displayPath(abs, this.root),
+          line: mapped!.line,
+          ...(mapped!.column ? { column: mapped!.column } : {}),
+          ...component,
+        };
+      }
+    }
+
     // Unbundled sources (Vite serves /src/App.tsx) may already point at the file.
     const gen = await this.load(url);
     let original: { source: string; line: number; column: number; name?: string } | null = null;
@@ -188,16 +221,21 @@ export class SourceResolver {
         }
       }
     }
-    const candidate = original ? original.source : url;
-    const cleaned = cleanSourcePath(candidate);
-    if (isExternalSource(cleaned)) return null;
-    const abs = this.locate(cleaned);
+    // The spec makes `sources` relative to the map (Vite writes just "App.tsx"),
+    // but many bundlers write them relative to the project root: try both.
+    const candidates = original ? [relativeTo(original.source, gen.mapUrl), original.source] : [url];
+    let abs: string | null = null;
+    for (const candidate of candidates) {
+      const cleaned = candidate && cleanSourcePath(candidate);
+      if (!cleaned || isExternalSource(cleaned)) continue;
+      if ((abs = this.locate(cleaned))) break;
+    }
     if (!abs) return null;
     return {
       file: displayPath(abs, this.root),
       line: original?.line ?? frame.line,
       column: original?.column ?? frame.column,
-      ...(frame.fn && !/^(eval|Object\.|exports\.|Module\.)/.test(frame.fn) ? { component: frame.fn } : {}),
+      ...component,
     };
   }
 
@@ -220,14 +258,16 @@ export class SourceResolver {
     if (!file) return { map: null };
     const ref = file.sourceMapHeader ?? lastSourceMappingUrl(file.body);
     if (!ref) return { map: null };
+    const base = url.startsWith("/") ? pathToFileURL(url).href : url;
     let raw: string | null = null;
+    let mapUrl = base;
     if (ref.startsWith("data:")) raw = decodeDataUrl(ref);
     else {
-      const mapUrl = new URL(ref, url.startsWith("/") ? pathToFileURL(url).href : url).href;
+      mapUrl = new URL(ref, base).href;
       raw = (await this.readGenerated(mapUrl))?.body ?? null;
     }
     if (!raw) return { map: null };
-    return { map: new FlattenMap(JSON.parse(raw)) as unknown as TraceMap };
+    return { map: new FlattenMap(JSON.parse(raw)) as unknown as TraceMap, mapUrl };
   }
 
   private async readGenerated(url: string): Promise<{ body: string; sourceMapHeader?: string } | null> {
@@ -241,6 +281,16 @@ export class SourceResolver {
       return { body: await readFile(abs, "utf8") };
     }
     if (/^https?:\/\//.test(url)) return this.fetchHttp(url);
+    return null;
+  }
+}
+
+/** A relative `sources` entry resolved against the map URL, or null when it is already absolute. */
+function relativeTo(source: string, mapUrl: string | undefined): string | null {
+  if (!mapUrl || /^[a-z][\w+.-]*:/i.test(source) || source.startsWith("/")) return null;
+  try {
+    return new URL(source, mapUrl).href;
+  } catch {
     return null;
   }
 }

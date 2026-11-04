@@ -4,8 +4,9 @@ import { createReadStream, existsSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
-import { forward, forwardUpgrade, probe, rebase, type ProxyOptions } from "./proxy.js";
-import { SourceResolver } from "./source.js";
+import { LOOPBACK, rebase } from "../shared/url.js";
+import { forward, forwardUpgrade, probe, type ProxyOptions } from "./proxy.js";
+import { SourceResolver, type RawFrame } from "./source.js";
 import type { Store } from "./store.js";
 import type { AgentState, NewPinInput, OverlayState, Pin, ServerEvent } from "../shared/types.js";
 import { log } from "./log.js";
@@ -43,11 +44,22 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
     private overlayFile: string,
   ) {
     super();
-    this.resolver = new SourceResolver(store.root, (url) => this.fetchFromTarget(url));
+    this.resolver = new SourceResolver(
+      () => store.root,
+      (url) => this.fetchFromTarget(url),
+      (frame) => this.nextOriginalFrame(frame),
+    );
   }
 
+  /**
+   * Same host name as the dev server when it is on loopback. Cookies ignore the port, so the
+   * review and the dev server share the login session: signing in on either works on both
+   * (OAuth callbacks usually land on the dev server URL).
+   */
   get origin(): string | null {
-    return this.port ? `http://localhost:${this.port}` : null;
+    if (!this.port) return null;
+    const host = this.target && LOOPBACK.has(this.target.hostname) ? this.target.hostname : "localhost";
+    return `http://${host}:${this.port}`;
   }
 
   get connectedClients(): number {
@@ -77,7 +89,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
 
   /** Fail early, with a message the agent can act on, instead of proxying to nothing. */
   private async checkTarget(target: URL): Promise<void> {
-    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname);
+    const loopback = LOOPBACK.has(target.hostname);
     if (loopback && this.port && Number(target.port) === this.port) {
       throw new Error(`${target.origin} is this jrabbit review itself. Pass the dev server URL instead.`);
     }
@@ -331,6 +343,19 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       return json(res, rule ? 200 : 404, rule ?? { error: "not found" });
     }
 
+    const ruleDelete = /^\/api\/rules\/([a-z0-9-]+)$/.exec(path);
+    if (ruleDelete && req.method === "DELETE") {
+      const ok = await this.store.deleteRule(ruleDelete[1]!);
+      this.broadcastState();
+      return json(res, ok ? 200 : 404, ok ? { ok } : { error: "not found" });
+    }
+
+    if (path === "/api/archive" && req.method === "POST") {
+      const archived = await this.store.archivePins();
+      this.broadcastState();
+      return json(res, 200, { archived: archived.length });
+    }
+
     json(res, 404, { error: "not found" });
   }
 
@@ -404,10 +429,39 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
   }
 
   /** Fetch a URL the browser saw (on our origin) from the real dev server. */
+  /**
+   * Next.js with webpack bundles with eval source maps. Its dev server maps those frames
+   * for its own error overlay; ask it the same way. Null on any other dev server.
+   */
+  private async nextOriginalFrame(frame: RawFrame): Promise<{ file: string; line: number; column?: number } | null> {
+    if (!this.target) return null;
+    const res = await fetch(new URL("/__nextjs_original-stack-frames", this.target), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        frames: [
+          // Next 16 reads line1/column1, Next 14-15 lineNumber/column.
+          { file: frame.url, methodName: frame.fn ?? "", arguments: [], line1: frame.line, column1: frame.column, lineNumber: frame.line, column: frame.column },
+        ],
+        isServer: false,
+        isEdgeServer: false,
+        isAppDirectory: true,
+      }),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return null;
+    const [result] = (await res.json()) as Array<{ status: string; value?: { originalStackFrame?: Record<string, unknown> | null } }>;
+    const f = result?.status === "fulfilled" ? result.value?.originalStackFrame : null;
+    const line = Number(f?.line1 ?? f?.lineNumber);
+    if (typeof f?.file !== "string" || !line) return null;
+    const column = Number(f.column1 ?? f.column) || undefined;
+    return { file: f.file, line, ...(column ? { column } : {}) };
+  }
+
   private async fetchFromTarget(url: string): Promise<{ body: string; sourceMapHeader?: string } | null> {
     if (!this.target) return null;
     const u = new URL(url);
-    const ours = this.port && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname) && Number(u.port) === this.port;
+    const ours = this.port && LOOPBACK.has(u.hostname) && Number(u.port) === this.port;
     const sameAsTarget = u.origin === this.target.origin;
     if (!ours && !sameAsTarget) return null; // never fetch arbitrary hosts
     const real = new URL(u.pathname + u.search, this.target);

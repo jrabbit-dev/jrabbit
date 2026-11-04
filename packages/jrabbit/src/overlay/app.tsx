@@ -3,6 +3,7 @@ import type { OverlayState, Pin, Rule } from "../shared/types.js";
 import type { Api, Connection } from "./api.js";
 import { capture, describe, findElement, reactDebug } from "./dom.js";
 import { rabbitPath } from "./styles.js";
+import { rebase } from "../shared/url.js";
 
 type Mode = "idle" | "point";
 type Tab = "pins" | "rules";
@@ -20,6 +21,7 @@ const Rabbit = () => (
 
 /** Preact 11 does not append "px" to numeric style values. */
 const px = (n: number) => `${Math.round(n)}px`;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const isOurs = (e: Event, host: HTMLElement) => e.composedPath().includes(host);
 
@@ -40,24 +42,56 @@ export function App({ api, host }: Props) {
   };
 
   // Server events: state, after-capture requests, toasts.
-  useEffect(
-    () =>
-      api.events(async (e) => {
-        if (e.type === "state") setState(e.state);
-        if (e.type === "toast") showToast(e.message);
-        if (e.type === "capture-after") {
-          if (e.path !== location.pathname) return;
+  useEffect(() => {
+    // One capture at a time (they share the page), all counting from when they were asked.
+    let captures = Promise.resolve();
+    return api.events((e) => {
+      if (e.type === "state") setState(e.state);
+      if (e.type === "toast") showToast(e.message);
+      if (e.type === "capture-after") {
+        if (e.path !== location.pathname) return;
+        const asked = Date.now();
+        captures = captures.then(async () => {
           // Give HMR time to apply the agent's change.
           let el: Element | null = null;
           for (let i = 0; i < 6 && !el; i++) {
-            await new Promise((r) => setTimeout(r, i === 0 ? 1500 : 800));
+            await sleep(i === 0 ? Math.max(0, asked + 1500 - Date.now()) : 800);
             el = findElement(e.selector, e.text);
           }
-          await api.after(e.id, el ? await capture(el, host) : null).catch(() => undefined);
-        }
-      }, setConnection),
-    [],
-  );
+          const shot = el ? await capture(el, host).catch(() => null) : null;
+          await api.after(e.id, shot).catch(() => undefined);
+        });
+      }
+    }, setConnection);
+  }, []);
+
+  // Absolute links and forms to the dev server stay in the review.
+  useEffect(() => {
+    const origin = state.target;
+    if (!origin) return;
+    const toReview = (url: string) => rebase(url, origin, location.origin);
+    const link = (e: MouseEvent) => {
+      if (isOurs(e, host)) return;
+      const a = e.composedPath().find((n): n is HTMLAnchorElement => n instanceof HTMLAnchorElement);
+      const next = a?.href && toReview(a.href);
+      if (a && next) a.href = next;
+    };
+    const submit = (e: SubmitEvent) => {
+      const form = e.target as HTMLFormElement;
+      const action = (e.submitter as HTMLButtonElement | null)?.formAction || form.action;
+      const next = action && toReview(action);
+      if (next) form.action = next;
+    };
+    const opts = { capture: true };
+    window.addEventListener("click", link, opts);
+    window.addEventListener("auxclick", link, opts);
+    window.addEventListener("submit", submit, opts);
+    return () => {
+      window.removeEventListener("click", link, opts);
+      window.removeEventListener("auxclick", link, opts);
+      window.removeEventListener("submit", submit, opts);
+    };
+  }, [state.target]);
 
   // Pointing: highlight under the cursor, click selects, the app never sees the click.
   useEffect(() => {
@@ -339,6 +373,7 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
 
 function Panel({ tab, setTab, state, api }: { tab: Tab; setTab: (t: Tab) => void; state: OverlayState; api: Api }) {
   const pins = [...state.pins].reverse();
+  const approved = state.pins.filter((p) => p.status === "approved").length;
   return (
     <div class="panel">
       <div class="tabs" role="tablist">
@@ -351,6 +386,13 @@ function Panel({ tab, setTab, state, api }: { tab: Tab; setTab: (t: Tab) => void
       </div>
       {tab === "pins" &&
         (pins.length ? pins.map((p) => <PinItem key={p.id} pin={p} api={api} />) : <p class="empty">No pins yet. Press P and click an element.</p>)}
+      {tab === "pins" && approved > 0 && (
+        <div class="row archive">
+          <button class="btn" onClick={() => api.archive()} title="Move approved pins to .jrabbit/archive">
+            Archive {approved} approved
+          </button>
+        </div>
+      )}
       {tab === "rules" &&
         (state.rules.length ? (
           state.rules.map((r) => <RuleItem key={r.slug} rule={r} api={api} />)
@@ -439,13 +481,16 @@ function RuleItem({ rule, api }: { rule: Rule; api: Api }) {
       </header>
       <p class="rule-body">{rule.body}</p>
       <p class="src">{rule.path}</p>
-      {rule.status === "draft" && (
-        <div class="row">
+      <div class="row">
+        <button class="btn" onClick={() => api.deleteRule(rule.slug)}>
+          {rule.status === "draft" ? "Discard" : "Remove"}
+        </button>
+        {rule.status === "draft" && (
           <button class="btn accent" onClick={() => api.approveRule(rule.slug)}>
             Approve rule
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

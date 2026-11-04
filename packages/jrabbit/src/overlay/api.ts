@@ -25,6 +25,8 @@ export class Api {
   reopen = (id: string, note: string) => this.call<Pin>("POST", `/pins/${id}/reopen`, { note });
   after = (id: string, shot: string | null) => this.call("POST", `/pins/${id}/after`, { shot });
   approveRule = (slug: string) => this.call("POST", `/rules/${slug}/approve`);
+  deleteRule = (slug: string) => this.call("DELETE", `/rules/${slug}`);
+  archive = () => this.call<{ archived: number }>("POST", "/archive");
 
   shotUrl = (rel: string) => `/__jrabbit/shots/${rel.split("/").pop()}?t=${this.token}`;
 

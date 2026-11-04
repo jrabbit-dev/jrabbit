@@ -58,6 +58,35 @@ describe("Store", () => {
     const back = parseRule(rule.slug, serializeRule({ ...rule, status: "approved" }), rule.path);
     expect(back).toMatchObject({ title: rule.title, body: rule.body, status: "approved", source: ["#1"] });
   });
+
+  it("archives approved pins with their shots and never reuses their numbers", async () => {
+    const s = await store();
+    const one = await s.createPin(input("a"), null, [], PNG);
+    await s.createPin(input("b"), null, []);
+    await s.updatePin(one.id, (p) => s.setStatus(p, "approved", "human"));
+
+    const archived = await s.archivePins();
+    expect(archived.map((p) => p.n)).toEqual([1]);
+    expect((await s.listPins()).map((p) => p.n)).toEqual([2]);
+    expect(existsSync(join(s.dir, "archive", `${one.id}.json`))).toBe(true);
+    expect(existsSync(join(s.root, one.shots.before!))).toBe(false);
+    expect(existsSync(join(s.dir, "archive", "shots", `${one.id}-before.png`))).toBe(true);
+
+    expect((await s.createPin(input("c"), null, [])).n).toBe(3);
+    expect(await s.archivePins()).toEqual([]);
+  });
+
+  it("edits rules back to draft and deletes them", async () => {
+    const s = await store();
+    const rule = await s.writeRule({ title: "Spacing", body: "Use 8px steps.", source: [] });
+    await s.setRuleStatus(rule.slug, "approved");
+    const edited = await s.updateRule(rule.slug, { body: "Use 4px steps." });
+    expect(edited).toMatchObject({ body: "Use 4px steps.", status: "draft", title: "Spacing" });
+    expect(await s.deleteRule(rule.slug)).toBe(true);
+    expect(await s.listRules()).toEqual([]);
+    expect(await s.deleteRule(rule.slug)).toBe(false);
+    expect(await s.updateRule("nope", { body: "x" })).toBeNull();
+  });
 });
 
 describe("Store across processes", () => {
