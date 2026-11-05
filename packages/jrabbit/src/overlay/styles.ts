@@ -22,8 +22,23 @@ button:focus-visible, textarea:focus-visible { outline: 1px solid var(--accent);
 .bar button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
 .bar .send { background: var(--accent); color: #000; }
 .bar button:disabled { background: transparent; color: var(--muted); cursor: default; }
-.logo { display: flex; align-items: center; padding: 0 8px 0 6px; }
+.logo { display: flex; align-items: center; padding: 0 8px 0 6px; overflow: hidden; }
 .logo svg { width: 24px; height: auto; display: block; }
+/* Point mode: the rabbit runs in place. Three frames (stretch, gather, push), 140ms each,
+   stepped like a sprite; on the stretch it is off the ground, one pixel up. */
+.logo :is(.b, .c) { visibility: hidden; }
+.logo:is(.running, .dash) .a { animation: frame 420ms steps(1) infinite; translate: 0 -1px; }
+.logo:is(.running, .dash) .b { animation: frame 420ms steps(1) -280ms infinite; }
+.logo:is(.running, .dash) .c { animation: frame 420ms steps(1) -140ms infinite; }
+@keyframes frame { 0% { visibility: visible; } 33.333% { visibility: hidden; } }
+/* Send: the rabbit sprints off with the pins and comes back from the other side. */
+.logo.dash svg { animation: dash 700ms; }
+@keyframes dash {
+  0% { translate: 0; animation-timing-function: cubic-bezier(.5, 0, .75, 0); }
+  45% { translate: -40px; }
+  45.01% { translate: 40px; animation-timing-function: var(--ease-out); }
+  100% { translate: 0; }
+}
 kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 
 .status { display: flex; align-items: center; gap: 6px; padding: 0 10px 0 4px; color: var(--muted); white-space: nowrap; }
@@ -52,6 +67,14 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 }
 .marker[data-status="resolved"] { border-color: var(--fg); }
 .marker[data-status="approved"] { opacity: .45; border-color: var(--muted); }
+.peek {
+  position: fixed; width: 260px; padding: 10px 12px; pointer-events: none;
+  background: var(--bg); color: var(--fg); border-radius: 8px; box-shadow: var(--shadow);
+  transition: opacity 150ms var(--ease-out);
+}
+.peek .row { justify-content: flex-start; gap: 8px; margin: 0; }
+.peek .comment { margin: 6px 0 0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.peek .summary { margin: 6px 0 0; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 .composer {
   position: fixed; width: 300px; pointer-events: auto; padding: 10px;
@@ -81,6 +104,8 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .tabs { display: flex; gap: 2px; padding: 6px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); }
 .tabs button { padding: 4px 8px; border-radius: 6px; color: var(--muted); }
 .tabs button[aria-selected="true"] { color: var(--fg); background: rgba(255,255,255,.08); }
+.tabs .close { margin-left: auto; width: 26px; display: grid; place-items: center; padding: 0; }
+.tabs .close svg { width: 10px; height: 10px; }
 .empty { padding: 20px 14px; color: var(--muted); }
 .item { padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .item:last-child { border-bottom: 0; }
@@ -109,6 +134,7 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 /* Enter states: panel grows from the toolbar, composer from the click, toast rises. */
 @starting-style {
   .panel, .composer { opacity: 0; scale: .97; }
+  .peek { opacity: 0; }
   .toast { opacity: 0; translate: -50% 6px; }
 }
 
@@ -116,6 +142,7 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 @media (hover: hover) and (pointer: fine) {
   .bar button:not(:disabled):not([aria-pressed="true"]):not(.send):not(.reload):hover { background: rgba(255,255,255,.08); }
   .bar .send:not(:disabled):hover { filter: brightness(1.08); }
+  .tabs .close:hover { color: var(--fg); background: rgba(255,255,255,.08); }
   .btn:not(.primary):not(.accent):not(:disabled):hover { background: rgba(255,255,255,.14); }
   .btn.primary:not(:disabled):hover, .btn.accent:not(:disabled):hover { filter: brightness(1.08); }
 }
@@ -123,6 +150,8 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 /* Keep fades (they help orientation), drop movement. */
 @media (prefers-reduced-motion: reduce) {
   button { transition: none; }
+  .logo:is(.running, .dash) :is(.a, .b, .c) { animation: none; translate: none; }
+  .logo.dash svg { animation: dash 1ms; }
   button:not(:disabled):active { scale: none; }
   .panel, .composer, .toast { transition: opacity 150ms ease; }
   @starting-style {
@@ -132,6 +161,14 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 }
 `;
 
-/** 8-bit rabbit, 16×9 grid, running left. */
+/** 8-bit rabbit, 16×9 grid, running left. Frame A: stretched (the logo). */
 export const rabbitPath =
   "M9 0h3v1h-3zM7 1h3v1h-3zM2 2h5v1h-5zM1 3h1v1h-1zM3 3h2v1h-2zM7 3h5v1h-5zM13 3h1v1h-1zM0 4h5v1h-5zM6 4h7v1h-7zM1 5h12v1h-12zM2 6h2v1h-2zM8 6h6v1h-6zM1 7h2v1h-2zM10 7h4v1h-4zM0 8h1v1h-1zM11 8h5v1h-5z";
+
+/** Frame B: legs gathered under the body. */
+export const rabbitPathGathered =
+  "M9 0h3v1h-3zM7 1h3v1h-3zM2 2h5v1h-5zM1 3h1v1h-1zM3 3h2v1h-2zM7 3h5v1h-5zM13 3h1v1h-1zM0 4h5v1h-5zM6 4h7v1h-7zM1 5h12v1h-12zM3 6h2v1h-2zM7 6h6v1h-6zM4 7h2v1h-2zM7 7h4v1h-4zM2 8h4v1h-4zM8 8h4v1h-4z";
+
+/** Frame C: pushing off, hind legs stretched back to the ground. */
+export const rabbitPathPush =
+  "M9 0h3v1h-3zM7 1h3v1h-3zM2 2h5v1h-5zM1 3h1v1h-1zM3 3h2v1h-2zM7 3h5v1h-5zM13 3h1v1h-1zM0 4h5v1h-5zM6 4h7v1h-7zM1 5h12v1h-12zM2 6h3v1h-3zM8 6h6v1h-6zM4 7h2v1h-2zM11 7h4v1h-4zM12 8h4v1h-4z";

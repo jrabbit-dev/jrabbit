@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { OverlayState, Pin, Rule } from "../shared/types.js";
 import type { Api, Connection } from "./api.js";
 import { capture, describe, findElement, reactDebug } from "./dom.js";
-import { rabbitPath } from "./styles.js";
+import { rabbitPath, rabbitPathGathered, rabbitPathPush } from "./styles.js";
 import { rebase } from "../shared/url.js";
 
 type Mode = "idle" | "point";
@@ -14,8 +14,10 @@ interface Props {
 }
 
 const Rabbit = () => (
-  <svg viewBox="0 0 16 9" shape-rendering="crispEdges" aria-hidden="true">
-    <path fill="currentColor" d={rabbitPath} />
+  <svg viewBox="0 -1 16 10" shape-rendering="crispEdges" aria-hidden="true">
+    <path class="a" fill="currentColor" d={rabbitPath} />
+    <path class="b" fill="currentColor" d={rabbitPathGathered} />
+    <path class="c" fill="currentColor" d={rabbitPathPush} />
   </svg>
 );
 
@@ -33,6 +35,7 @@ export function App({ api, host }: Props) {
   const [hover, setHover] = useState<{ rect: DOMRect; label: string } | null>(null);
   const [target, setTarget] = useState<Element | null>(null);
   const [panel, setPanel] = useState<Tab | null>(null);
+  const [dash, setDash] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [, setTick] = useState(0);
 
@@ -126,20 +129,21 @@ export function App({ api, host }: Props) {
     };
   }, [mode, target]);
 
-  // Keyboard: P toggles pointing, Esc leaves.
+  // Keyboard: P toggles pointing. Esc closes the composer, then point mode, then the panel.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const typing = e.composedPath().some((n) => n instanceof HTMLTextAreaElement || n instanceof HTMLInputElement || (n as HTMLElement).isContentEditable);
       if (e.key === "Escape") {
         if (target) setTarget(null);
-        else setMode("idle");
+        else if (mode === "point") setMode("idle");
+        else setPanel(null);
       } else if (live && !typing && (e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setMode((m) => (m === "point" ? "idle" : "point"));
       }
     };
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
-  }, [target, live]);
+  }, [target, live, mode]);
 
   // Leave point mode if the connection drops: pins could not be saved.
   useEffect(() => {
@@ -167,6 +171,7 @@ export function App({ api, host }: Props) {
     try {
       const { sent } = await api.send();
       setMode("idle");
+      setDash(true);
       const pins = `${sent} pin${sent === 1 ? "" : "s"}`;
       showToast(state.agent === "none" ? `Saved ${pins}. No agent connected yet.` : `Sent ${pins} to your agent`);
     } catch {
@@ -203,10 +208,14 @@ export function App({ api, host }: Props) {
         />
       )}
 
-      {panel && <Panel tab={panel} setTab={setPanel} state={state} api={api} />}
+      {panel && <Panel tab={panel} setTab={setPanel} onClose={() => setPanel(null)} state={state} api={api} />}
 
       <div class="bar" role="toolbar" aria-label="jrabbit">
-        <span class="logo" title="jrabbit">
+        <span
+          class={dash ? "logo dash" : mode === "point" ? "logo running" : "logo"}
+          title="jrabbit"
+          onAnimationEnd={(e) => e.animationName === "dash" && setDash(false)}
+        >
           <Rabbit />
         </span>
         <Status connection={connection} state={state} />
@@ -284,20 +293,59 @@ function Status({ connection, state }: { connection: Connection; state: OverlayS
 const statusLabel = (p: Pin) => (p.status === "open" ? (p.deliveredAt ? "working" : "sent") : p.status);
 
 function Marker({ pin, onClick }: { pin: Pin; onClick: () => void }) {
+  const [peek, setPeek] = useState(false);
   const el = findElement(pin.element.selector, pin.element.text);
   if (!el) return null;
   const r = el.getBoundingClientRect();
   if (r.bottom < 0 || r.top > innerHeight) return null;
   return (
-    <button
-      class="marker"
-      data-status={pin.status}
-      style={{ position: "fixed", left: px(r.left), top: px(r.top) }}
-      onClick={onClick}
-      title={pin.comment}
-    >
-      {pin.n}
-    </button>
+    <>
+      <button
+        class="marker"
+        data-status={pin.status}
+        style={{ position: "fixed", left: px(r.left), top: px(r.top) }}
+        onClick={onClick}
+        onPointerEnter={() => setPeek(true)}
+        onPointerLeave={() => setPeek(false)}
+        onFocus={() => setPeek(true)}
+        onBlur={() => setPeek(false)}
+        aria-label={`Pin ${pin.n}: ${pin.comment}`}
+      >
+        {pin.n}
+      </button>
+      {peek && <Peek pin={pin} r={r} />}
+    </>
+  );
+}
+
+const PEEK_W = 260;
+
+/** Hover preview of a pin: its element outlined and a card with the comment. */
+function Peek({ pin, r }: { pin: Pin; r: DOMRect }) {
+  const right = r.left + 14 + PEEK_W > innerWidth - 8;
+  const below = r.top < innerHeight - 160;
+  const src = pin.source ? `${pin.source.file}:${pin.source.line}` : null;
+  return (
+    <>
+      <div class="hover" style={{ left: px(r.left), top: px(r.top), width: px(r.width), height: px(r.height) }} />
+      <div
+        class="peek"
+        style={{
+          left: px(right ? r.left - 14 - PEEK_W : r.left + 14),
+          ...(below ? { top: px(r.top + 14) } : { bottom: px(innerHeight - r.top + 14) }),
+        }}
+      >
+        <div class="row">
+          <strong>#{pin.n}</strong>
+          <span class="badge" data-status={statusLabel(pin)}>
+            {statusLabel(pin)}
+          </span>
+        </div>
+        <p class="comment">{pin.comment}</p>
+        {pin.resolution && <p class="summary">{pin.resolution.summary}</p>}
+        {src && <div class="src">{src}</div>}
+      </div>
+    </>
   );
 }
 
@@ -371,7 +419,7 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
   );
 }
 
-function Panel({ tab, setTab, state, api }: { tab: Tab; setTab: (t: Tab) => void; state: OverlayState; api: Api }) {
+function Panel({ tab, setTab, onClose, state, api }: { tab: Tab; setTab: (t: Tab) => void; onClose: () => void; state: OverlayState; api: Api }) {
   const pins = [...state.pins].reverse();
   const approved = state.pins.filter((p) => p.status === "approved").length;
   return (
@@ -382,6 +430,11 @@ function Panel({ tab, setTab, state, api }: { tab: Tab; setTab: (t: Tab) => void
         </button>
         <button role="tab" aria-selected={tab === "rules"} onClick={() => setTab("rules")}>
           Rules
+        </button>
+        <button class="close" onClick={onClose} aria-label="Close" title="Close (Esc)">
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+          </svg>
         </button>
       </div>
       {tab === "pins" &&
