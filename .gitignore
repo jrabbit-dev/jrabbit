@@ -27,3 +27,6 @@ service-account*.json
 
 # brag video composition: local only (renders are copied to site/media)
 brag-output/
+
+# vercel local link
+.vercel
