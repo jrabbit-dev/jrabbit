@@ -1,0 +1,5 @@
+Point at the button. "This is the main action. Make it the primary button." Send.
+
+Your agent gets the comment, a screenshot, the selector and src/components/PlanCard.tsx:52. The button turns primary.
+
+jrabbit: an MCP for Claude Code, Codex and Cursor. https://jrabbit.dev

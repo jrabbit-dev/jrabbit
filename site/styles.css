@@ -1,0 +1,527 @@
+/* jrabbit.dev
+   White page, true black type. The only color is the overlay's green: on the actions
+   (same as Send in the widget), on the thing you point at, and on the 8-bit rabbit. */
+
+:root {
+  --paper: #ffffff;
+  --ink: #000000;
+  --ink-2: #5c5c5c;
+  --wash: #f3f3f1;
+  --line: #e4e4e2;
+  --accent: #b4ff39;
+
+  --sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Scale: 16 → 20 → 30 → 72+ (minor sixth-ish, fluid at the top) */
+  --t-sm: 0.875rem;
+  --t-base: 1.0625rem;
+  --t-md: 1.25rem;
+  --t-lg: clamp(1.5rem, 1.2rem + 1.2vw, 1.875rem);
+  --t-xl: clamp(2.75rem, 1.4rem + 6.2vw, 6.5rem);
+  --t-hero: clamp(2.375rem, 1.1rem + 3.7vw, 4.75rem);
+
+  --gutter: clamp(20px, 4vw, 56px);
+  --max: 1280px;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 var(--t-base) / 1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: clip;
+}
+::selection { background: var(--accent); color: #000; }
+h1, h2, h3, p, ol, ul, figure, pre { margin: 0; }
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+code, kbd, pre { font-family: var(--mono); font-size: 0.875em; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Layout: one column of rows; each row sets its title on the left third, its body on the right. */
+.top, main > section, .foot {
+  width: 100%;
+  max-width: var(--max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: 22px;
+}
+.brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: var(--t-md); text-decoration: none; letter-spacing: -0.01em; }
+.brand svg { width: 28px; height: auto; display: block; }
+@media (hover: hover) and (pointer: fine) {
+  .brand:hover svg { animation: nudge 300ms steps(1); }
+}
+@keyframes nudge { 0% { translate: 0 0; } 25% { translate: 0 -2px; } 50% { translate: 0 -4px; } 75% { translate: 0 -2px; } }
+.top nav { display: flex; gap: 24px; font-size: var(--t-sm); }
+.top nav a { text-decoration: none; color: var(--ink-2); transition: color 150ms ease; }
+.top nav a:hover { color: var(--ink); }
+
+/* Link hover: the label rolls up and a copy (its text-shadow) rolls in from below. */
+.roll { display: inline-block; overflow: hidden; vertical-align: bottom; line-height: 1.5; }
+.roll > span { display: inline-block; }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .roll > span { text-shadow: 0 1.5em currentColor; transition: translate 380ms var(--ease-out); }
+  .roll:hover > span { translate: 0 -1.5em; }
+}
+
+/* Background: faint ink cells drifting on slow noise, denser around the cursor. Drawn by demo.js. */
+.texture { position: fixed; inset: 0; z-index: -1; width: 100%; height: 100%; pointer-events: none; }
+
+/* Hero: the headline, then the rabbit running on a terminal-block track, hopping over bugs. */
+.hero { padding-block: clamp(32px, 5vw, 72px) clamp(64px, 9vw, 120px); }
+.stage {
+  /* One rabbit cell. The runner is 16 cells wide, the track one cell tall. */
+  --c: clamp(9px, 1.05vw, 15px);
+  position: relative;
+}
+.hero h1 {
+  position: relative;
+  z-index: 1;
+  font-size: var(--t-hero);
+  font-weight: 500;
+  line-height: 1.06;
+  letter-spacing: -0.035em;
+}
+/* Four chunks; the breaks set two lines on desktop and three on phones. */
+.hero h1 .line { display: inline-block; }
+.hero h1 br.m { display: none; }
+
+.runner {
+  position: absolute;
+  right: 0;
+  bottom: calc(var(--c) * 1.25);
+  width: calc(var(--c) * 16);
+  z-index: 1;
+}
+/* Bugs ride the ground toward the rabbit. Full-bleed, so they come in from the window edge. */
+.field {
+  position: absolute;
+  left: calc(50% - 50vw);
+  width: 100vw;
+  bottom: calc(var(--c) * 1.25);
+  height: calc(var(--c) * 3);
+  pointer-events: none;
+}
+.field svg { position: absolute; left: 0; bottom: 0; height: auto; display: block; color: var(--ink); }
+/* Carrot leaves in the brand green; the root stays ink like the rabbit. */
+.field .leaf { fill: var(--accent); }
+.stage { touch-action: manipulation; }
+/* One line under the track: the hint until you play, then the score. */
+.score {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  margin: 0;
+  font: 500 12px/1 var(--mono);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.stage.playing .score { color: var(--ink); }
+.stage.hit .bunny { animation: blink 900ms steps(1); }
+@keyframes blink { 0%, 22%, 44%, 66% { opacity: 0; } 11%, 33%, 55%, 77% { opacity: 1; } }
+
+/* The headline's key word sits in a jrabbit selection: green frame, four handles. */
+.sel { position: relative; display: inline-block; margin-inline: 0.06em; }
+.sel::before {
+  content: "";
+  position: absolute;
+  inset: 0.13em -0.12em 0.04em;
+  z-index: -1;
+  border: 1.5px solid var(--accent);
+  background: rgb(180 255 57 / 0.16);
+  border-radius: 2px;
+}
+.sel i {
+  position: absolute;
+  width: clamp(5px, 0.1em, 7px);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: var(--paper);
+  border: 1px solid var(--ink);
+}
+.sel i:nth-of-type(1) { left: -0.12em; top: 0.13em; }
+.sel i:nth-of-type(2) { left: calc(100% + 0.12em); top: 0.13em; }
+.sel i:nth-of-type(3) { left: -0.12em; top: calc(100% - 0.04em); }
+.sel i:nth-of-type(4) { left: calc(100% + 0.12em); top: calc(100% - 0.04em); }
+
+.bunny { display: block; width: 100%; height: auto; overflow: visible; color: var(--ink); }
+.bunny .f:not(.a) { visibility: hidden; }
+.stage:is(.running, .entering) .bunny .a { animation: frame 360ms steps(1) infinite; translate: 0 -1px; }
+.stage:is(.running, .entering) .bunny .b { animation: frame 360ms steps(1) -240ms infinite; }
+.stage:is(.running, .entering) .bunny .c { animation: frame 360ms steps(1) -120ms infinite; }
+/* In the air: legs stretched (frame c), no cycling. */
+.stage.air .bunny .f { animation: none; translate: none; visibility: hidden; }
+.stage.air .bunny .c { visibility: visible; }
+
+.track {
+  height: var(--c);
+  /* Room for the rabbit (9 cells) plus its jump (6 cells). */
+  margin-top: calc(var(--c) * 17);
+  margin-inline: calc(50% - 50vw);
+  overflow: hidden;
+}
+.ground {
+  /* 16-cell tile of upper-half blocks, like a ▀ row in a terminal. */
+  width: calc(100% + var(--c) * 16);
+  height: 100%;
+  translate: calc(var(--c) * -16) 0;
+  will-change: translate;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 1'%3E%3Cpath fill='%23000' d='M.05 .09h.9v.41h-.9zM1.05 .09h.9v.41h-.9zM2.05 .09h.9v.41h-.9zM4.05 .09h.9v.41h-.9zM5.05 .09h.9v.41h-.9zM6.05 .09h.9v.41h-.9zM7.05 .09h.9v.41h-.9zM9.05 .09h.9v.41h-.9zM10.05 .09h.9v.41h-.9zM12.05 .09h.9v.41h-.9zM13.05 .09h.9v.41h-.9zM14.05 .09h.9v.41h-.9z'/%3E%3C/svg%3E")
+    0 0 / calc(var(--c) * 16) var(--c) repeat-x;
+}
+
+.hero-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+  margin-top: clamp(36px, 4.4vw, 64px);
+  max-width: 34rem;
+  margin-left: auto;
+  margin-right: clamp(0px, 8vw, 120px);
+}
+.lede { font-size: var(--t-md); line-height: 1.5; color: var(--ink); text-wrap: pretty; }
+.cta { display: grid; gap: 12px; justify-items: start; }
+.hint { font-size: var(--t-sm); color: var(--ink-2); max-width: 30rem; text-wrap: pretty; }
+
+button { font: inherit; color: inherit; cursor: pointer; }
+.primary {
+  height: 48px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #000;
+  font-weight: 500;
+  transition: scale 160ms var(--ease-out), background-color 150ms ease;
+}
+.primary:hover { background: #a6f526; --ring: #a6f526; }
+
+/* Setup button: the agents it works with, the action, and a copy mark that turns into a check. */
+.primary.setup { display: inline-flex; align-items: center; gap: 12px; height: 52px; padding: 0 18px 0 8px; }
+.agents { display: flex; }
+.agents > span {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 0 0 2px var(--ring, var(--accent));
+  transition: box-shadow 150ms ease;
+}
+.agents > span + span { margin-left: -10px; }
+.agents svg { width: 18px; height: 18px; fill: var(--ink); }
+.copy-mark { display: grid; width: 20px; height: 20px; }
+.copy-mark svg { grid-area: 1 / 1; width: 100%; height: 100%; transition: opacity 160ms var(--ease-out), scale 160ms var(--ease-out); }
+.done-icon, .setup[data-done] .copy-icon { opacity: 0; scale: 0.6; }
+.setup[data-done] .done-icon { opacity: 1; scale: 1; }
+.primary:active, .cmd button:active { scale: 0.97; }
+
+.install { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
+.clients { position: relative; display: flex; gap: 2px; }
+.clients .pill {
+  position: absolute; left: 0; top: 0; height: 30px; border-radius: 7px; background: var(--wash);
+  transition: translate 220ms var(--ease-out), width 220ms var(--ease-out);
+}
+.clients .pill:not([data-ready]) { transition: none; }
+.clients button { position: relative; }
+.clients.has-pill button[aria-selected="true"] { background: none; }
+.clients button {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+}
+.clients button:hover { color: var(--ink); }
+.clients button[aria-selected="true"] { background: var(--wash); color: var(--ink); font-weight: 500; }
+.cmd {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 6px 6px 16px;
+  background: var(--wash);
+  border-radius: 10px;
+}
+.cmd pre { flex: 1; min-width: 0; padding-block: 6px; overflow-x: auto; scrollbar-width: none; font-size: var(--t-sm); line-height: 1.55; }
+.cmd pre code { font-size: inherit; }
+.cmd button {
+  flex: none;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  font-size: var(--t-sm);
+  transition: scale 160ms var(--ease-out);
+}
+.cmd-note { font-size: var(--t-sm); color: var(--ink-2); }
+.cmd-note code { padding: 0.1em 0.35em; background: var(--wash); border-radius: 4px; }
+
+/* Rows */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  column-gap: var(--gutter);
+  padding-block: clamp(56px, 7vw, 104px);
+}
+.row h2 {
+  position: sticky;
+  top: 32px;
+  align-self: start;
+  font-size: var(--t-lg);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  max-width: 14ch;
+  text-wrap: balance;
+}
+.body { display: grid; gap: 24px; max-width: 40rem; }
+.body > p { text-wrap: pretty; }
+.fine { font-size: var(--t-sm); color: var(--ink-2); }
+
+/* How it works: a real sequence, so it is numbered. */
+.steps {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 40px var(--gutter);
+  counter-reset: step;
+}
+.steps li { counter-increment: step; display: grid; gap: 8px; align-content: start; }
+.steps .glyph { --c: 4px; display: block; height: auto; margin-bottom: 10px; color: var(--ink); }
+.steps .glyph .leaf { fill: var(--accent); }
+.steps h3 { font-size: var(--t-md); font-weight: 500; letter-spacing: -0.01em; }
+.steps h3::before { content: counter(step) "  "; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: pre; }
+.steps p { color: var(--ink-2); max-width: 30rem; }
+
+/* Code */
+.code {
+  padding: 20px 22px;
+  border-radius: 12px;
+  background: var(--wash);
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  overflow-x: auto;
+  tab-size: 2;
+}
+.code code { font-size: inherit; }
+.machine { background: var(--paper); box-shadow: inset 0 0 0 1px var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.machine code[data-fresh] > span { animation: print 1ms calc(var(--i) * 22ms) both; }
+@keyframes print { from { opacity: 0; } }
+.loop { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 800; background: var(--paper); }
+.loop[hidden] { display: none; }
+.file { display: grid; gap: 10px; }
+.file figcaption { font-family: var(--mono); font-size: 0.8125rem; color: var(--ink-2); }
+.body code:not(pre code) { padding: 0.1em 0.35em; background: var(--wash); border-radius: 4px; }
+
+.facts { list-style: none; padding: 0; display: grid; gap: 0; max-width: 40rem; }
+.facts li { padding-block: 14px; }
+.facts li + li { border-top: 1px solid var(--line); }
+
+/* FAQ */
+.faq { max-width: 40rem; }
+.faq details + details { border-top: 1px solid var(--line); }
+.faq summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24px;
+  padding-block: 16px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 500;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; flex: none; color: var(--ink-2); font-weight: 400; transition: rotate 200ms var(--ease-out); }
+.faq details[open] summary::after { rotate: 45deg; }
+.faq details p { padding-bottom: 18px; color: var(--ink-2); max-width: 36rem; }
+.faq .install { padding-bottom: 18px; }
+.faq .install p { padding-bottom: 0; }
+.faq code { padding: 0.1em 0.35em; background: var(--wash); border-radius: 4px; }
+
+/* End: the one big mark on the page. Rabbit drawn in terminal blocks. */
+.end, .foot {
+  max-width: none;
+  padding-inline: max(var(--gutter), calc((100% - var(--max)) / 2 + var(--gutter)));
+}
+.end { border-top: 1px solid var(--line); }
+.end {
+  display: grid;
+  justify-items: start;
+  gap: 32px;
+  padding-block: clamp(80px, 12vw, 180px) clamp(72px, 9vw, 128px);
+}
+.hare { width: clamp(208px, 34vw, 416px); height: auto; display: block; color: var(--ink); }
+/* Cells print in row by row, each one flashing green before it settles black. */
+.hare.waiting rect { opacity: 0; }
+.hare.printing rect { animation: cell 420ms var(--d) both; }
+@keyframes cell {
+  0% { opacity: 0; fill: var(--accent); }
+  1% { opacity: 1; fill: var(--accent); }
+  100% { opacity: 1; fill: currentColor; }
+}
+.end h2 { font-size: var(--t-xl); font-weight: 500; line-height: 0.98; letter-spacing: -0.035em; max-width: 14ch; text-wrap: balance; }
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px 32px;
+  padding-block: 28px 96px;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.foot nav { display: flex; gap: 20px; }
+.foot a { text-decoration: none; transition: color 150ms ease; }
+.foot a:hover { color: var(--ink); }
+
+@media (max-width: 760px) {
+  .row { grid-template-columns: minmax(0, 1fr); row-gap: 24px; }
+  .row h2 { position: static; }
+  .stage { --c: 8px; }
+  .steps { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .hero-body { margin-inline: 0; }
+  .hero h1 br.m { display: inline; }
+  .hero h1 br.d { display: none; }
+  .top nav a[href="/start.md"] { display: none; }
+  .foot { padding-bottom: 104px; }
+}
+
+/* Copy labels swap through a short blur so the two words never sit on top of each other. */
+.label { display: inline-block; }
+
+/* First load, one sequence: the headline rises line by line, the rabbit runs in, then the rest. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero h1 .line { clip-path: inset(-0.3em -0.5em -0.22em -0.5em); }
+  .hero h1 .line > span { display: block; animation: rise 1100ms var(--ease-out) calc(var(--i) * 110ms + 80ms) both; }
+  .stage.live .runner { animation: run-in 1000ms var(--ease-out) 260ms both; }
+  .hero-body { animation: settle 900ms var(--ease-out) 420ms both; }
+  /* Once the words land, the frame is dragged out from its top-left corner, then the handles appear. */
+  .sel::before { animation: marquee 520ms var(--ease-out) 1250ms both; }
+  .sel i { animation: handle 220ms var(--ease-out) 1620ms both; }
+}
+/* Section titles decode in: each letter slot flips through a few of the title's own letters,
+   then lands. The real text sits in .sr-only; slots keep the real glyph's width so nothing reflows. */
+.coded .w { white-space: nowrap; }
+.coded .ch { position: relative; color: transparent; }
+.coded .ch.set { color: inherit; }
+.coded .ch[data-g]::before { content: attr(data-g); position: absolute; left: 50%; translate: -50% 0; color: var(--ink-2); }
+
+@keyframes marquee { from { clip-path: inset(0 100% 100% 0); } }
+@keyframes handle { from { opacity: 0; scale: 0.6; } }
+@keyframes rise { from { translate: 0 118%; } }
+@keyframes run-in { from { translate: 62vw 0; } }
+@keyframes settle { from { opacity: 0; translate: 0 14px; } }
+
+/* ───────── Demo overlay (mirrors the real one) ───────── */
+
+.jr {
+  --bg: #0b0b0b; --fg: #f5f5f5; --muted: #8a8a8a;
+  --shadow: 0 8px 24px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.06);
+  font: 12px/1.45 var(--mono);
+  color: var(--fg);
+}
+.jr button { font: inherit; color: inherit; background: none; border: 0; transition: scale 160ms var(--ease-out); }
+.jr button:not(:disabled):active { scale: 0.97; }
+.jr :focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.jr-bar {
+  position: fixed; right: 16px; bottom: 16px; z-index: 50;
+  display: flex; align-items: center; gap: 2px; padding: 4px;
+  background: var(--bg); border-radius: 10px; box-shadow: var(--shadow);
+}
+.jr-bar button { height: 28px; padding: 0 10px; border-radius: 7px; white-space: nowrap; }
+.jr-bar button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.jr-bar .send { background: var(--accent); color: #000; }
+.jr-bar button:disabled { background: transparent; color: var(--muted); cursor: default; }
+.jr-bar kbd { all: unset; color: var(--muted); margin-left: 6px; }
+.jr-bar button[aria-pressed="true"] kbd { color: #6b6b6b; }
+
+.jr-logo { display: flex; align-items: center; padding: 0 8px 0 6px; overflow: hidden; }
+.jr-logo svg { width: 24px; height: auto; display: block; }
+.jr-logo :is(.b, .c) { visibility: hidden; }
+.jr-logo:is(.running, .dash, .enter) .a { animation: frame 420ms steps(1) infinite; translate: 0 -1px; }
+.jr-logo:is(.running, .dash, .enter) .b { animation: frame 420ms steps(1) -280ms infinite; }
+.jr-logo:is(.running, .dash, .enter) .c { animation: frame 420ms steps(1) -140ms infinite; }
+@keyframes frame { 0% { visibility: visible; } 33.333% { visibility: hidden; } }
+.jr-logo.dash svg { animation: dash 700ms; }
+@keyframes dash {
+  0% { translate: 0; animation-timing-function: cubic-bezier(.5, 0, .75, 0); }
+  45% { translate: -40px; }
+  45.01% { translate: 40px; animation-timing-function: var(--ease-out); }
+  100% { translate: 0; }
+}
+/* First load: the rabbit runs in from the right edge of the bar, once. */
+.jr-logo.enter svg { animation: enter 900ms var(--ease-out) 300ms both; }
+@keyframes enter { from { translate: 40px; } }
+
+.jr-hover {
+  position: absolute; z-index: 40; pointer-events: none;
+  border: 1.5px solid var(--accent); background: rgba(180,255,57,.12); border-radius: 2px;
+}
+.jr-hover span {
+  position: absolute; left: -1.5px; bottom: 100%; margin-bottom: 4px; padding: 2px 6px;
+  background: var(--bg); color: var(--fg); border-radius: 4px; white-space: nowrap;
+}
+.jr-hover[data-inside] span { bottom: auto; top: 4px; left: 4px; margin: 0; }
+
+.jr-marker {
+  position: absolute; z-index: 45; min-width: 20px; height: 20px; padding: 0 5px;
+  display: grid; place-items: center; translate: -50% -50%;
+  background: var(--bg); color: var(--fg); border: 1.5px solid var(--accent); border-radius: 10px;
+  font-size: 11px; cursor: default;
+  transition: scale 200ms var(--ease-out), opacity 200ms var(--ease-out);
+}
+@starting-style { .jr-marker { scale: 0.6; opacity: 0; } }
+.jr-marker[data-status="sent"] { border-color: var(--fg); }
+
+.jr-composer {
+  position: absolute; z-index: 55; width: min(300px, calc(100vw - 32px)); padding: 10px;
+  background: var(--bg); border-radius: 10px; box-shadow: var(--shadow);
+  transition: opacity 150ms var(--ease-out), translate 150ms var(--ease-out);
+}
+@starting-style { .jr-composer { opacity: 0; translate: 0 4px; } }
+.jr-composer .target { color: var(--muted); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jr-composer textarea {
+  display: block; width: 100%; min-height: 64px; resize: vertical; padding: 8px;
+  background: rgba(255,255,255,.06); color: var(--fg); border: 0; border-radius: 6px;
+  font: inherit;
+}
+.jr-composer textarea::placeholder { color: var(--muted); }
+.jr-composer .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; color: var(--muted); }
+.jr-composer .add { height: 26px; padding: 0 10px; border-radius: 6px; background: var(--accent); color: #000; }
+.jr-composer .add:disabled { opacity: .4; cursor: default; }
+
+html.jr-pointing, html.jr-pointing * { cursor: crosshair !important; }
+html.jr-pointing .jr, html.jr-pointing .jr * { cursor: default !important; }
+html.jr-pointing .jr button { cursor: pointer !important; }
+
+@media (max-width: 760px) {
+  .jr-bar kbd { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jr-logo:is(.running, .dash, .enter) :is(.a, .b, .c) { animation: none; translate: none; }
+  .jr-logo:is(.dash, .enter) svg { animation: none; }
+  .jr-marker, .jr-composer, .machine code { transition: none; animation: none; }
+  .faq summary::after, .clients .pill { transition: none; }
+  .brand svg { animation: none !important; }
+  .stage .bunny :is(.a, .b, .c) { animation: none; translate: none; }
+}

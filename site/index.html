@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jrabbit · Your partner for shipping the UI you designed</title>
+    <meta
+      name="description"
+      content="An MCP server for Claude Code, Codex and Cursor. Click any element in your running app, write what you want, and your agent gets the comment, a screenshot and the exact file and line."
+    />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <canvas class="texture" aria-hidden="true"></canvas>
+    <header class="top">
+      <a class="brand" href="/" aria-label="jrabbit home">
+        <svg viewBox="0 0 16 9" shape-rendering="crispEdges" aria-hidden="true">
+          <path fill="currentColor" d="M9 0h3v1h-3zM7 1h3v1h-3zM2 2h5v1h-5zM1 3h1v1h-1zM3 3h2v1h-2zM7 3h5v1h-5zM13 3h1v1h-1zM0 4h5v1h-5zM6 4h7v1h-7zM1 5h12v1h-12zM2 6h2v1h-2zM8 6h6v1h-6zM1 7h2v1h-2zM10 7h4v1h-4zM0 8h1v1h-1zM11 8h5v1h-5z" />
+        </svg>
+        jrabbit
+      </a>
+      <nav aria-label="Links">
+        <a class="roll" href="/start.md"><span>Setup guide</span></a>
+        <a class="roll" href="https://github.com/jrabbit-dev/jrabbit"><span>GitHub</span></a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="stage">
+          <h1>
+            <span class="line" style="--i: 0"><span>Your partner for</span></span><br class="m" />
+            <span class="line" style="--i: 1"><span>shipping</span></span><br class="d" />
+            <span class="line" style="--i: 2"><span>the <span class="sel">UI<i></i><i></i><i></i><i></i></span></span></span><br class="m" />
+            <span class="line" style="--i: 3"><span>you designed.</span></span>
+          </h1>
+          <div class="runner" aria-hidden="true">
+            <svg class="bunny" viewBox="0 0 16 9"></svg>
+          </div>
+          <div class="field" aria-hidden="true"></div>
+          <div class="track" aria-hidden="true"><div class="ground"></div></div>
+          <p class="score" aria-hidden="true"></p>
+        </div>
+        <div class="hero-body">
+          <p class="lede">
+            Point at anything in your running app and say what to change. Your agent gets the file and line, makes the
+            fix and shows you a before and after.
+          </p>
+          <div class="cta">
+            <button class="primary" type="button" data-copy="prompt">Copy setup prompt</button>
+            <p class="hint">Paste it into Claude Code, Codex or Cursor. It installs jrabbit and opens your app.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="row" id="problem">
+        <h2>Stop pasting screenshots into your terminal</h2>
+        <div class="body">
+          <p>
+            You screenshot the page, paste it, and explain which button you mean. The agent guesses the component and
+            edits the wrong file. Next session, you correct the same spacing again.
+          </p>
+        </div>
+      </section>
+
+      <section class="row" id="how">
+        <h2>How it works</h2>
+        <ol class="steps">
+          <li data-icon="open">
+            <h3>Open</h3>
+            <p>Ask your agent to open a review of localhost:3000. jrabbit serves your app with the overlay on top and never edits your code.</p>
+          </li>
+          <li data-icon="point">
+            <h3>Point</h3>
+            <p>Press P, click an element and write the change. Add as many pins as you need, then press Send.</p>
+          </li>
+          <li data-icon="fix">
+            <h3>Fix</h3>
+            <p>Your agent receives every pin with your comment, a screenshot, the selector and the file and line, and edits the code.</p>
+          </li>
+          <li data-icon="check">
+            <h3>Check</h3>
+            <p>Each pin comes back with a before and after shot. Approve it, or reopen it with a note.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="row" id="agent">
+        <h2>What your agent gets</h2>
+        <div class="body">
+          <p id="agent-note">One pin on a pricing page, from your click to the fix. Point at something on this page and press Send to see your own.</p>
+          <video class="loop" muted loop playsinline preload="auto" poster="media/agent-loop.jpg?v=2" width="1280" height="800"
+            aria-label="A designer selects the Start trial button on a pricing card and writes: This is the main action, make it the primary button. The agent receives the comment, a screenshot, the selector and src/components/PlanCard.tsx line 52, changes the button variant from outline to primary, and the button fills green.">
+            <source src="media/agent-loop.webm?v=2" type="video/webm" />
+            <source src="media/agent-loop.mp4?v=2" type="video/mp4" />
+          </video>
+          <pre class="code machine" tabindex="0" aria-label="Pin as the agent receives it" hidden><code id="payload">{
+  "id": "pin_3f2a91c0",
+  "n": 3,
+  "status": "open",
+  "comment": "Too much air above the price. Cut it in half.",
+  "page": "/pricing",
+  "viewport": "1440x900@2x",
+  "element": {
+    "tag": "p",
+    "selector": "section.plans > div:nth-of-type(2) > p.price",
+    "text": "$24 / month",
+    "size": "312x56",
+    "styles": { "margin-top": "48px", "font-size": "40px" }
+  },
+  "source": "src/components/PlanCard.tsx:41 (PlanCard)",
+  "sourceChain": ["src/app/pricing/page.tsx:18 (PricingPage)"]
+}</code></pre>
+          <p class="fine">
+            Each pin also carries its screenshot. File and line work for React apps on Next.js and Vite. Anywhere else, your
+            agent gets the text, classes and test ids to search for.
+          </p>
+        </div>
+      </section>
+
+      <section class="row" id="rules">
+        <h2>Say it twice and it becomes a rule</h2>
+        <div class="body">
+          <p>
+            When you repeat a correction, your agent proposes a rule. Nothing applies until you approve it. Approved rules
+            are Markdown files in <code>.jrabbit/rules/</code>, committed with your repo, and your agent reads them before
+            it starts.
+          </p>
+          <figure class="file">
+            <figcaption>.jrabbit/rules/secondary-text.md</figcaption>
+            <pre class="code" tabindex="0"><code>---
+title: "Secondary text uses --ink-500"
+status: approved
+source: ["pin_3f2a91c0", "pin_8b17d4e2"]
+created: 2026-11-04T15:12:09.000Z
+---
+
+Secondary text uses the --ink-500 token.
+Never a neutral gray like #999.</code></pre>
+          </figure>
+        </div>
+      </section>
+
+      <section class="row" id="local">
+        <h2>Runs on your machine</h2>
+        <ul class="facts">
+          <li>One line to install. There is no account or API key.</li>
+          <li>Pins, screenshots and rules are files in <code>.jrabbit/</code> inside your project.</li>
+          <li>Pages behind a login work, because the review shares your dev server's cookies.</li>
+          <li>MIT licensed, with the code on GitHub.</li>
+        </ul>
+      </section>
+
+      <section class="row" id="faq">
+        <h2>Questions</h2>
+        <div class="faq">
+          <details class="manual">
+            <summary>Rather install it by hand?</summary>
+            <div class="install">
+              <div class="clients" role="tablist" aria-label="Install for">
+                <button type="button" role="tab" id="tab-claude" aria-controls="cmd" aria-selected="true" data-client="claude">Claude Code</button>
+                <button type="button" role="tab" id="tab-codex" aria-controls="cmd" aria-selected="false" tabindex="-1" data-client="codex">Codex</button>
+                <button type="button" role="tab" id="tab-cursor" aria-controls="cmd" aria-selected="false" tabindex="-1" data-client="cursor">Cursor</button>
+              </div>
+              <div class="cmd" id="cmd" role="tabpanel" aria-labelledby="tab-claude">
+                <pre><code id="cmd-text">claude mcp add jrabbit -- npx -y jrabbit</code></pre>
+                <button type="button" data-copy="cmd" aria-label="Copy install command">Copy</button>
+              </div>
+              <p class="cmd-note" id="cmd-note">Run it from your project root.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Does jrabbit change my code?</summary>
+            <p>No. It serves your app through a local proxy and adds the overlay there. Your agent makes the edits, the same way it does today.</p>
+          </details>
+          <details>
+            <summary>Which agents does it work with?</summary>
+            <p>Claude Code, Codex, Cursor, and any client that runs MCP servers over stdio.</p>
+          </details>
+          <details>
+            <summary>Which frameworks?</summary>
+            <p>
+              Any web app on a local dev server gets pins with a screenshot, selector and styles. File and line need React on
+              Next.js or Vite. Adapters for Vue, Svelte and Astro are welcome contributions.
+            </p>
+          </details>
+          <details>
+            <summary>Where do my screenshots go?</summary>
+            <p>To the <code>.jrabbit/</code> folder in your project, and to your agent when it reads a pin. jrabbit itself sends nothing anywhere.</p>
+          </details>
+          <details>
+            <summary>What does it cost?</summary>
+            <p>Nothing. jrabbit is free and MIT licensed.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="end">
+        <svg class="hare" viewBox="0 0 26 12" aria-hidden="true">
+          <path fill="currentColor" d="M14.05 0.09h.9v.82h-.9zM15.05 0.09h.9v.82h-.9zM16.05 0.09h.9v.82h-.9zM17.05 0.09h.9v.82h-.9zM11.05 1.09h.9v.82h-.9zM12.05 1.09h.9v.82h-.9zM13.05 1.09h.9v.82h-.9zM14.05 1.09h.9v.82h-.9zM15.05 1.09h.9v.82h-.9zM8.05 2.09h.9v.82h-.9zM9.05 2.09h.9v.82h-.9zM10.05 2.09h.9v.82h-.9zM11.05 2.09h.9v.82h-.9zM12.05 2.09h.9v.82h-.9zM3.05 3.09h.9v.82h-.9zM4.05 3.09h.9v.82h-.9zM5.05 3.09h.9v.82h-.9zM6.05 3.09h.9v.82h-.9zM7.05 3.09h.9v.82h-.9zM8.05 3.09h.9v.82h-.9zM2.05 4.09h.9v.82h-.9zM3.05 4.09h.9v.82h-.9zM5.05 4.09h.9v.82h-.9zM6.05 4.09h.9v.82h-.9zM7.05 4.09h.9v.82h-.9zM12.05 4.09h.9v.82h-.9zM13.05 4.09h.9v.82h-.9zM14.05 4.09h.9v.82h-.9zM15.05 4.09h.9v.82h-.9zM16.05 4.09h.9v.82h-.9zM17.05 4.09h.9v.82h-.9zM20.05 4.09h.9v.82h-.9zM21.05 4.09h.9v.82h-.9zM1.05 5.09h.9v.82h-.9zM2.05 5.09h.9v.82h-.9zM3.05 5.09h.9v.82h-.9zM4.05 5.09h.9v.82h-.9zM5.05 5.09h.9v.82h-.9zM6.05 5.09h.9v.82h-.9zM7.05 5.09h.9v.82h-.9zM10.05 5.09h.9v.82h-.9zM11.05 5.09h.9v.82h-.9zM12.05 5.09h.9v.82h-.9zM13.05 5.09h.9v.82h-.9zM14.05 5.09h.9v.82h-.9zM15.05 5.09h.9v.82h-.9zM16.05 5.09h.9v.82h-.9zM17.05 5.09h.9v.82h-.9zM18.05 5.09h.9v.82h-.9zM19.05 5.09h.9v.82h-.9zM20.05 5.09h.9v.82h-.9zM21.05 5.09h.9v.82h-.9zM0.05 6.09h.9v.82h-.9zM1.05 6.09h.9v.82h-.9zM2.05 6.09h.9v.82h-.9zM3.05 6.09h.9v.82h-.9zM4.05 6.09h.9v.82h-.9zM5.05 6.09h.9v.82h-.9zM6.05 6.09h.9v.82h-.9zM7.05 6.09h.9v.82h-.9zM8.05 6.09h.9v.82h-.9zM9.05 6.09h.9v.82h-.9zM10.05 6.09h.9v.82h-.9zM11.05 6.09h.9v.82h-.9zM12.05 6.09h.9v.82h-.9zM13.05 6.09h.9v.82h-.9zM14.05 6.09h.9v.82h-.9zM15.05 6.09h.9v.82h-.9zM16.05 6.09h.9v.82h-.9zM17.05 6.09h.9v.82h-.9zM18.05 6.09h.9v.82h-.9zM19.05 6.09h.9v.82h-.9zM20.05 6.09h.9v.82h-.9zM21.05 6.09h.9v.82h-.9zM2.05 7.09h.9v.82h-.9zM3.05 7.09h.9v.82h-.9zM4.05 7.09h.9v.82h-.9zM5.05 7.09h.9v.82h-.9zM6.05 7.09h.9v.82h-.9zM7.05 7.09h.9v.82h-.9zM8.05 7.09h.9v.82h-.9zM9.05 7.09h.9v.82h-.9zM10.05 7.09h.9v.82h-.9zM11.05 7.09h.9v.82h-.9zM12.05 7.09h.9v.82h-.9zM13.05 7.09h.9v.82h-.9zM14.05 7.09h.9v.82h-.9zM15.05 7.09h.9v.82h-.9zM16.05 7.09h.9v.82h-.9zM17.05 7.09h.9v.82h-.9zM18.05 7.09h.9v.82h-.9zM19.05 7.09h.9v.82h-.9zM20.05 7.09h.9v.82h-.9zM21.05 7.09h.9v.82h-.9zM22.05 7.09h.9v.82h-.9zM4.05 8.09h.9v.82h-.9zM5.05 8.09h.9v.82h-.9zM6.05 8.09h.9v.82h-.9zM7.05 8.09h.9v.82h-.9zM13.05 8.09h.9v.82h-.9zM14.05 8.09h.9v.82h-.9zM15.05 8.09h.9v.82h-.9zM16.05 8.09h.9v.82h-.9zM17.05 8.09h.9v.82h-.9zM18.05 8.09h.9v.82h-.9zM19.05 8.09h.9v.82h-.9zM20.05 8.09h.9v.82h-.9zM21.05 8.09h.9v.82h-.9zM4.05 9.09h.9v.82h-.9zM5.05 9.09h.9v.82h-.9zM16.05 9.09h.9v.82h-.9zM17.05 9.09h.9v.82h-.9zM18.05 9.09h.9v.82h-.9zM19.05 9.09h.9v.82h-.9zM20.05 9.09h.9v.82h-.9zM21.05 9.09h.9v.82h-.9zM2.05 10.09h.9v.82h-.9zM3.05 10.09h.9v.82h-.9zM4.05 10.09h.9v.82h-.9zM18.05 10.09h.9v.82h-.9zM19.05 10.09h.9v.82h-.9zM20.05 10.09h.9v.82h-.9zM21.05 10.09h.9v.82h-.9zM22.05 10.09h.9v.82h-.9zM1.05 11.09h.9v.82h-.9zM2.05 11.09h.9v.82h-.9zM20.05 11.09h.9v.82h-.9zM21.05 11.09h.9v.82h-.9zM22.05 11.09h.9v.82h-.9zM23.05 11.09h.9v.82h-.9zM24.05 11.09h.9v.82h-.9zM25.05 11.09h.9v.82h-.9z" />
+        </svg>
+        <h2>Point at the first thing you would fix.</h2>
+        <button class="primary" type="button" data-copy="prompt">Copy setup prompt</button>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>The code is MIT licensed. The jrabbit name and logo are trademarks.</p>
+      <nav aria-label="Footer">
+        <a class="roll" href="https://github.com/jrabbit-dev/jrabbit"><span>GitHub</span></a>
+        <a class="roll" href="https://github.com/jrabbit-dev/jrabbit/blob/main/SECURITY.md"><span>Security</span></a>
+        <a class="roll" href="https://github.com/jrabbit-dev/jrabbit/blob/main/TRADEMARK.md"><span>Trademark</span></a>
+      </nav>
+    </footer>
+
+    <p class="sr-only" aria-live="polite" id="announce"></p>
+    <script type="module" src="/demo.js"></script>
+  </body>
+</html>
