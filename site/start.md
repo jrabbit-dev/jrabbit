@@ -52,12 +52,11 @@ Other MCP clients: a stdio server with command `npx` and args `-y jrabbit@0.1.1`
 
 Most clients load new MCP servers only when a session starts. If the jrabbit tools are not available to you now:
 
-1. Tell the human setup is done and they need to restart you:
-   - Claude Code: exit and run `claude --continue`
-   - Codex: exit and run `codex resume`
-   - Cursor: open Settings → MCP and make sure jrabbit is enabled
-2. Tell them what to say after: **"open a jrabbit review of my dev server"**.
-3. Stop here. Do not repeat setup after the restart.
+1. Tell the human setup is done and give them the one command for their client. It restarts you and starts the review in the same step, so they type nothing else:
+   - Claude Code: exit, then run `claude --continue "open a jrabbit review of my dev server"`
+   - Codex: exit, then run `codex resume --last "open a jrabbit review of my dev server"`
+   - Cursor: open Settings → MCP, make sure jrabbit is enabled, then send **"open a jrabbit review of my dev server"**
+2. Stop here. Do not repeat setup after the restart.
 
 ## 4. Find the dev server
 
