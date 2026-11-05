@@ -1,0 +1,10 @@
+{
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "www.jrabbit.dev" }],
+      "destination": "https://jrabbit.dev/$1",
+      "permanent": true
+    }
+  ]
+}
