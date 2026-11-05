@@ -33,6 +33,9 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
   private watchers: FSWatcher[] = [];
   private watchTimer: NodeJS.Timeout | null = null;
   private agentTimer: NodeJS.Timeout | null = null;
+  private presenceTimer: NodeJS.Timeout | null = null;
+  /** An agent in another jrabbit process (MCP session or `jrabbit wait`) is waiting for pins. */
+  private elsewhere: AgentState = "none";
   private clients = new Set<http.ServerResponse>();
   private pendingAfter = new Map<string, { selector: string; text: string; path: string; done: (pin: Pin | null) => void }>();
   private resolver: SourceResolver;
@@ -82,6 +85,8 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
     if (!this.port) {
       this.port = await this.listen(preferredPort);
       this.watchStore();
+      this.presenceTimer = setInterval(() => void this.syncPresence(), 1000);
+      this.presenceTimer.unref();
     }
     this.broadcastState();
     return this.origin! + (target.pathname === "/" ? "" : target.pathname) + target.search;
@@ -121,6 +126,29 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
     }
   }
 
+  /** Share presence with other jrabbit processes on the same store, through heartbeat files. */
+  private async syncPresence(): Promise<void> {
+    if (this.clients.size) await this.store.beat("overlay");
+    const listening = await this.store.fresh("agent");
+    const next: AgentState = listening ? "listening" : this.elsewhere === "none" ? "none" : "connected";
+    if (next !== this.elsewhere) {
+      const before = this.agentState;
+      this.elsewhere = next;
+      if (this.agentState !== before) this.broadcastState();
+    }
+  }
+
+  /** What the overlay shows: the most engaged agent, here or in another process. */
+  get agentState(): AgentState {
+    const rank = { none: 0, connected: 1, listening: 2 } as const;
+    return rank[this.elsewhere] > rank[this.agent] ? this.elsewhere : this.agent;
+  }
+
+  /** A browser is connected to this review, or to another jrabbit review of this project. */
+  async overlayConnected(): Promise<boolean> {
+    return this.clients.size > 0 || (await this.store.fresh("overlay"));
+  }
+
   /**
    * The agent calls wait_for_feedback in a loop, leaving short gaps between calls.
    * Going from "listening" to anything else is delayed so the overlay does not flicker.
@@ -144,6 +172,8 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
     this.watchers = [];
     if (this.watchTimer) clearTimeout(this.watchTimer);
     if (this.agentTimer) clearTimeout(this.agentTimer);
+    if (this.presenceTimer) clearInterval(this.presenceTimer);
+    this.presenceTimer = null;
     for (const c of this.clients) c.end();
     await Promise.all(this.servers.map((s) => new Promise((r) => s.close(r))));
     this.servers = [];
@@ -279,6 +309,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
     if (path === "/api/pins" && req.method === "POST") {
       const input = body as NewPinInput;
       if (!input?.comment?.trim()) return json(res, 400, { error: "comment required" });
+      if (!input.element?.selector || !input.element.rect) return json(res, 400, { error: "element required" });
       const { source, chain } = await this.resolver.resolve(input.debug ?? []);
       const { debug: _d, shot, ...rest } = input;
       const pin = await this.store.createPin(rest, source, chain, shot);
@@ -405,7 +436,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       pins: await this.store.listPins(),
       rules: await this.store.listRules(),
       target: this.target?.origin ?? null,
-      agent: this.agent,
+      agent: this.agentState,
     };
   }
 

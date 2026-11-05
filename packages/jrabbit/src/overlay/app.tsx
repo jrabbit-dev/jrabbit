@@ -173,7 +173,13 @@ export function App({ api, host }: Props) {
       setMode("idle");
       setDash(true);
       const pins = `${sent} pin${sent === 1 ? "" : "s"}`;
-      showToast(state.agent === "none" ? `Saved ${pins}. No agent connected yet.` : `Sent ${pins} to your agent`);
+      showToast(
+        state.agent === "listening"
+          ? `Sent ${pins} to your agent`
+          : state.agent === "none"
+            ? `Saved ${pins}. No agent connected yet.`
+            : `Sent ${pins}. Your agent is not waiting: tell it to check jrabbit.`,
+      );
     } catch {
       showToast("Could not send. Is jrabbit still running?");
     }
@@ -273,7 +279,7 @@ function Status({ connection, state }: { connection: Connection; state: OverlayS
     } else {
       tone = "busy";
       label = "Agent connected";
-      hint = "Your agent is connected. Pins you send wait until it asks for them.";
+      hint = "Your agent is connected but not waiting. Pins you send wait until you tell it to check jrabbit.";
     }
   }
   return (

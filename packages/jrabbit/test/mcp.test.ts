@@ -130,17 +130,18 @@ describe("MCP server", () => {
   });
 
   it("opens a review of a running dev server", async () => {
-    const res = await call("open_review", { url: targetUrl(), open: false });
+    const res = await call("open_review", { url: targetUrl(), open: false, wait_seconds: 0 });
     expect(res.isError).toBeFalsy();
     expect(res.json.reviewUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
     expect(res.json.login).toContain("shares cookies");
+    expect(res.json.next).toContain("Do not end your turn");
     expect(review.origin).not.toBeNull();
   });
 
   it("times out with a next step when nothing is sent", async () => {
     const res = await call("wait_for_feedback", { timeout_seconds: 1 });
     expect(res.json).toMatchObject({ status: "timeout", drafts: 0, overlayConnected: false });
-    expect(res.json.next).toContain("No browser is connected");
+    expect(res.json.next).toContain("Nobody has the review open");
   });
 
   it("caps the wait under the default client tool timeout", async () => {
@@ -235,6 +236,16 @@ describe("MCP server", () => {
     const res = await call("archive_feedback");
     expect(res.json.archived).toEqual(["#1"]);
     expect((await store.listPins()).map((p) => p.n)).toEqual([2, 3]);
+  });
+
+  it("waits for the first pins inside open_review, so the agent never idles", async () => {
+    await humanSends("Make it the primary button");
+    const res = await call("open_review", { url: targetUrl(), open: false, wait_seconds: 2 });
+    expect(res.json.reviewUrl).toBeTruthy();
+    const feedback = JSON.parse(res.content[1]?.text ?? "{}");
+    expect(feedback.status).toBe("feedback");
+    expect(feedback.pins.map((p: { comment: string }) => p.comment)).toEqual(["Make it the primary button"]);
+    expect(feedback.next).toContain("without asking");
   });
 });
 

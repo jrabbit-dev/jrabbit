@@ -1,6 +1,8 @@
 import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type { Pin, PinElement, PinStatus, Rule } from "../shared/types.js";
@@ -19,17 +21,23 @@ const MAX_IMAGES = 8;
 /** Most MCP clients cut tool calls at 60 s (Codex by default), so a wait must end before that. */
 const MAX_WAIT_SECONDS = 55;
 const DEFAULT_WAIT_SECONDS = 50;
+/** open_review also starts the dev server probe and the proxy, so it waits a bit less. */
+const OPEN_WAIT_SECONDS = 45;
 
 const INSTRUCTIONS = `jrabbit lets a human point at UI in their browser and leave feedback pins for you.
 
+Stay in the loop. You only receive pins while you are inside wait_for_feedback, and jrabbit cannot wake you once your turn ends. So after open_review, do not end your turn: keep calling wait_for_feedback until the human says they are done. A sent pin is the request itself: change the code without asking the human to confirm.
+
 Loop:
-1. open_review(url) with the app's dev server URL. Tell the human to pin what they want changed and press Send.
-2. wait_for_feedback(). If it times out, call it again: the human may still be pinning.
+1. Tell the human in one line to point (P), comment and press Send. Then open_review(url) with the app's dev server URL: it opens the browser and already waits for the first pins.
+2. wait_for_feedback(). If it times out, call it again right away: the human may still be pinning.
 3. For each pin, edit the code. pin.source is where the pointed element is written; sourceChain lists the owner components. pin.element.styles has the element's current computed styles. When pin.source is null, search the code with pin.find.
 4. resolve_feedback for each pin, or for several at once with pins: [{id, summary}]. It captures an after screenshot: look at it and fix again if it is not right.
 5. Go back to wait_for_feedback() for the next batch or for pins the human reopened.
 
 Rules: call list_rules() before editing and follow every approved rule. When the human repeats the same correction, propose_rule() so it becomes a draft rule they can approve. update_rule() rewords a rule (it goes back to draft); delete_rule() removes a draft.
+
+If the human says they sent feedback, or asks you to check jrabbit, call wait_for_feedback (not list_feedback): it hands you the pins to work on.
 
 When the human is done with approved pins, archive_feedback() moves them out of the way.
 Never claim a human approved anything. Approving is done by the human in the browser.`;
@@ -72,7 +80,7 @@ export function formatPin(p: Pin) {
   };
 }
 
-function formatRule(r: Rule) {
+export function formatRule(r: Rule) {
   return { slug: r.slug, title: r.title, status: r.status, rule: r.body, source: r.source, path: r.path };
 }
 
@@ -158,40 +166,137 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
       .finally(rootReady);
   };
   let waiting = 0;
+  /** open_review ran and no browser has connected since: do not reopen the browser in a loop. */
+  let reopenedForNobody = false;
+  type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+
+  /** Wait for sent pins: in this process, through store changes from other processes, or polling every 2 s. */
+  const waitForPins = async (seconds: number, extra: Extra) => {
+    const deadline = Date.now() + seconds * 1000;
+    const progressToken = extra._meta?.progressToken;
+    waiting++;
+    review.setAgent("listening");
+    try {
+      let claim = await store.claimUndelivered(process.pid);
+      while (!claim.pins.length && Date.now() < deadline && !extra.signal.aborted) {
+        await store.beat("agent");
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(timer);
+            review.off("sent", done);
+            review.off("changed", done);
+            extra.signal.removeEventListener("abort", done);
+            resolve();
+          };
+          const timer = setTimeout(done, Math.min(2000, Math.max(0, deadline - Date.now())));
+          review.on("sent", done);
+          review.on("changed", done);
+          extra.signal.addEventListener("abort", done);
+        });
+        claim = await store.claimUndelivered(process.pid);
+        if (!claim.pins.length && progressToken !== undefined) {
+          const elapsed = seconds - Math.max(0, Math.round((deadline - Date.now()) / 1000));
+          await extra
+            .sendNotification({
+              method: "notifications/progress",
+              params: { progressToken, progress: elapsed, total: seconds, message: "Waiting for the human to press Send" },
+            })
+            .catch(() => undefined);
+        }
+      }
+      return claim;
+    } finally {
+      waiting--;
+      if (!waiting) review.setAgent("connected");
+    }
+  };
+
+  /** The result of a wait: the pins to work on, or what to do next. Shared by open_review and wait_for_feedback. */
+  const feedbackContent = async ({ pins, redelivered }: { pins: Pin[]; redelivered: Pin[] }): Promise<Content[]> => {
+    if (!pins.length) {
+      const drafts = (await store.listPins()).filter((p) => p.status === "draft").length;
+      const connected = await review.overlayConnected();
+      const gone = !connected && reopenedForNobody;
+      if (connected) reopenedForNobody = false;
+      return [
+        text({
+          status: "timeout",
+          drafts,
+          overlayConnected: connected,
+          next: gone
+            ? `Nobody has the review open: the human closed it or stepped away. Stop waiting and tell them in one line: open ${review.origin ?? "the review URL"} again, send pins, and say "check jrabbit".`
+            : connected
+              ? `Nothing sent yet${drafts ? ` (${drafts} draft${drafts === 1 ? "" : "s"} not sent)` : ""}. Call wait_for_feedback again now. Do not end your turn until the human says they are done.`
+              : "No browser is connected to the review. Call open_review again: it reopens the browser. Then keep waiting.",
+        }),
+      ];
+    }
+    const rules = (await store.listRules()).filter((r) => r.status === "approved");
+    return [
+      text({
+        status: "feedback",
+        pins: pins.map(formatPin),
+        ...(redelivered.length && {
+          redelivered: redelivered.map((p) => p.n),
+          redeliveredNote:
+            "These pins went to an earlier session that did not resolve them. Check whether the change is already in the code before editing again.",
+        }),
+        approvedRules: rules.map(formatRule),
+        next: "Edit the code for each pin now, without asking the human to confirm: sending the pin is the request. Then call resolve_feedback(id, summary) for each one, and wait_for_feedback again.",
+      }),
+      ...(await pinContent(store, pins, ["before"])),
+    ];
+  };
 
   server.registerTool(
     "open_review",
     {
       title: "Open review",
-      description:
-        "Open the app in the browser with the jrabbit overlay so the human can point at elements and comment. Proxies the dev server; the project's code is not modified. Fails with a clear reason if nothing is running at the URL. Returns the review URL.",
+      description: `Open the app in the browser with the jrabbit overlay so the human can point at elements and comment, then wait for their first pins (like wait_for_feedback, up to ${OPEN_WAIT_SECONDS} s). Before calling it, tell the human in one line: press P to point at an element, comment, and press Send. Proxies the dev server; the project's code is not modified. Fails with a clear reason if nothing is running at the URL.`,
       inputSchema: {
         url: z.string().describe("Dev server URL, e.g. http://localhost:3000 or http://localhost:3000/pricing"),
         open: z.boolean().optional().describe("Open the browser (default true)"),
+        wait_seconds: z
+          .number()
+          .int()
+          .min(0)
+          .max(OPEN_WAIT_SECONDS)
+          .optional()
+          .describe(`How long to wait for the first pins. Default ${OPEN_WAIT_SECONDS}; 0 returns right away`),
       },
       annotations: { ...LOCAL_WRITE, idempotentHint: true },
     },
-    async ({ url, open }) => {
+    async ({ url, open, wait_seconds }, extra) => {
       await ready();
+      let reviewUrl: string;
       try {
-        const reviewUrl = await review.start(url);
-        if (open !== false) openBrowser(reviewUrl);
-        return {
-          content: [
-            text({
-              reviewUrl,
-              target: url,
-              next: "Tell the human to open the review URL, press P (or Point) to pick elements, comment, and press Send. Then call wait_for_feedback.",
-              ...(new URL(reviewUrl).hostname === review.target?.hostname && {
-                login:
-                  "The review shares cookies with the dev server (same host name). If signing in lands the human on the dev server URL (OAuth callbacks), they open the review URL again and stay signed in.",
-              }),
-            }),
-          ],
-        };
+        reviewUrl = await review.start(url);
       } catch (err) {
         return fail(`Could not open review: ${(err as Error).message}`);
       }
+      if (open !== false) openBrowser(reviewUrl);
+      reopenedForNobody = !(await review.overlayConnected());
+      const info = {
+        reviewUrl,
+        target: url,
+        ...(open === false && { tell: "Give the human the review URL to open." }),
+        ...(new URL(reviewUrl).hostname === review.target?.hostname && {
+          login:
+            "The review shares cookies with the dev server (same host name). If signing in lands the human on the dev server URL (OAuth callbacks), they open the review URL again and stay signed in.",
+        }),
+      };
+      const seconds = wait_seconds ?? OPEN_WAIT_SECONDS;
+      if (!seconds) {
+        return {
+          content: [
+            text({
+              ...info,
+              next: "Call wait_for_feedback now, in this same turn. Do not end your turn while the review is open: jrabbit cannot wake you.",
+            }),
+          ],
+        };
+      }
+      return { content: [text(info), ...(await feedbackContent(await waitForPins(seconds, extra)))] };
     },
   );
 
@@ -199,7 +304,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
     "wait_for_feedback",
     {
       title: "Wait for feedback",
-      description: `Block until the human presses Send (or reopens a pin), then return the new pins with screenshots and source locations. Returns immediately if there are pins you have not received yet. Waits at most ${MAX_WAIT_SECONDS} s; on timeout, call it again.`,
+      description: `Block until the human presses Send (or reopens a pin), then return the new pins with screenshots and source locations. Returns immediately if there are pins you have not received yet. Waits at most ${MAX_WAIT_SECONDS} s; on timeout, call it again. Keep calling it until the human says they are done.`,
       inputSchema: {
         timeout_seconds: z
           .number()
@@ -213,73 +318,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
     },
     async ({ timeout_seconds }, extra) => {
       await ready();
-      const seconds = timeout_seconds ?? DEFAULT_WAIT_SECONDS;
-      const deadline = Date.now() + seconds * 1000;
-      const progressToken = extra._meta?.progressToken;
-      waiting++;
-      review.setAgent("listening");
-      let pins: Pin[] = [];
-      try {
-        pins = await store.claimUndelivered();
-        while (!pins.length && Date.now() < deadline && !extra.signal.aborted) {
-          // Wake on Send in this process, on any store change (other processes), or every 2 s as a fallback.
-          await new Promise<void>((resolve) => {
-            const done = () => {
-              clearTimeout(timer);
-              review.off("sent", done);
-              review.off("changed", done);
-              extra.signal.removeEventListener("abort", done);
-              resolve();
-            };
-            const timer = setTimeout(done, Math.min(2000, Math.max(0, deadline - Date.now())));
-            review.on("sent", done);
-            review.on("changed", done);
-            extra.signal.addEventListener("abort", done);
-          });
-          pins = await store.claimUndelivered();
-          if (!pins.length && progressToken !== undefined) {
-            const elapsed = seconds - Math.max(0, Math.round((deadline - Date.now()) / 1000));
-            await extra
-              .sendNotification({
-                method: "notifications/progress",
-                params: { progressToken, progress: elapsed, total: seconds, message: "Waiting for the human to press Send" },
-              })
-              .catch(() => undefined);
-          }
-        }
-      } finally {
-        waiting--;
-        if (!waiting) review.setAgent("connected");
-      }
-
-      if (!pins.length) {
-        const drafts = (await store.listPins()).filter((p) => p.status === "draft").length;
-        return {
-          content: [
-            text({
-              status: "timeout",
-              drafts,
-              overlayConnected: review.connectedClients > 0,
-              next:
-                review.connectedClients > 0
-                  ? "Nothing sent yet. Call wait_for_feedback again."
-                  : "No browser is connected. Call open_review, or ask the human to open the review URL.",
-            }),
-          ],
-        };
-      }
-      const rules = (await store.listRules()).filter((r) => r.status === "approved");
-      return {
-        content: [
-          text({
-            status: "feedback",
-            pins: pins.map(formatPin),
-            approvedRules: rules.map(formatRule),
-            next: "Edit the code for each pin, then call resolve_feedback(id, summary) for each one.",
-          }),
-          ...(await pinContent(store, pins, ["before"])),
-        ],
-      };
+      return { content: await feedbackContent(await waitForPins(timeout_seconds ?? DEFAULT_WAIT_SECONDS, extra)) };
     },
   );
 
@@ -299,7 +338,18 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
       const pins = (await store.listPins()).filter(
         (p) => (!status || p.status === (status as PinStatus)) && (!page || p.page.path === page),
       );
-      return { content: [text({ count: pins.length, pins: pins.map(formatPin) })] };
+      const waiting = pins.filter((p) => p.status === "open" && !p.deliveredAt).length;
+      return {
+        content: [
+          text({
+            count: pins.length,
+            pins: pins.map(formatPin),
+            ...(waiting && {
+              next: `${waiting} sent pin${waiting === 1 ? " is" : "s are"} waiting for you. Call wait_for_feedback to receive them with screenshots, change the code for each one without asking first, and resolve_feedback.`,
+            }),
+          }),
+        ],
+      };
     },
   );
 
@@ -376,7 +426,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
           : review.connectedClients
             ? "not captured (element not found or timeout)"
             : "not captured (no browser connected)";
-      const next = "Compare before/after. If it is not right, fix it and resolve again. The human approves or reopens in the browser.";
+      const next = "Compare before/after. If it is not right, fix it and resolve again. Then call wait_for_feedback: the human approves, reopens or sends more pins in the browser.";
       const summaryText =
         pins.length === 1 && !batch
           ? { pin: formatPin(pins[0]!), afterShot: afterShot(pins[0]!), next }
@@ -531,6 +581,8 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
           text({
             review: review.origin ? { url: review.origin, target: review.target?.origin } : null,
             browsersConnected: review.connectedClients,
+            overlayConnected: await review.overlayConnected(),
+            agentWaiting: review.agentState === "listening",
             pins: { draft: count("draft"), open: count("open"), resolved: count("resolved"), approved: count("approved") },
             undelivered: pins.filter((p) => p.status === "open" && !p.deliveredAt).length,
             rules: { draft: rules.filter((r) => r.status === "draft").length, approved: rules.filter((r) => r.status === "approved").length },

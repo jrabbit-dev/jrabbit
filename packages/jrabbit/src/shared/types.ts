@@ -61,6 +61,8 @@ export interface Pin {
   sentAt?: string;
   /** Set when the agent has received the pin through wait_for_feedback. */
   deliveredAt?: string;
+  /** Process id of the MCP session that received it. Unset when it went to `jrabbit wait`. */
+  deliveredTo?: number;
 }
 
 export type RuleStatus = "draft" | "approved";

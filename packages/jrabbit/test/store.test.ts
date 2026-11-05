@@ -118,9 +118,31 @@ describe("Store across processes", () => {
     const pin = await a.createPin(input("x"), null, []);
     await a.updatePin(pin.id, (p) => a.setStatus(p, "open", "human"));
     const [ca, cb] = await Promise.all([a.claimUndelivered(), b.claimUndelivered()]);
-    expect(ca.length + cb.length).toBe(1);
+    expect(ca.pins.length + cb.pins.length).toBe(1);
     expect((await a.getPin(pin.id))?.deliveredAt).toBeTruthy();
-    expect(await a.claimUndelivered()).toEqual([]);
+    expect((await a.claimUndelivered()).pins).toEqual([]);
+  });
+
+  it("takes back pins from a session that is gone, never from a live one", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jrabbit-orphan-"));
+    const store = new Store(root);
+    const pin = await store.createPin(input("x"), null, []);
+    await store.updatePin(pin.id, (p) => store.setStatus(p, "open", "human"));
+
+    // Received by this (live) session: another live session must not take it.
+    expect((await store.claimUndelivered(process.pid)).pins).toHaveLength(1);
+    const other = process.ppid;
+    expect((await store.claimUndelivered(other)).pins).toEqual([]);
+
+    // Received by a session that no longer exists: the next session gets it again, flagged.
+    await store.updatePin(pin.id, (p) => void (p.deliveredTo = 2 ** 22 + 12345));
+    const again = await store.claimUndelivered(process.pid);
+    expect(again.pins.map((p) => p.id)).toEqual([pin.id]);
+    expect(again.redelivered.map((p) => p.id)).toEqual([pin.id]);
+
+    // `jrabbit wait` (no owner) never takes back pins.
+    await store.updatePin(pin.id, (p) => void delete p.deliveredTo);
+    expect((await store.claimUndelivered()).pins).toEqual([]);
   });
 });
 

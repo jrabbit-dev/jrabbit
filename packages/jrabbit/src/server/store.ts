@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { NewPinInput, Pin, PinStatus, Rule, RuleStatus, SourceLocation } from "../shared/types.js";
@@ -12,6 +12,18 @@ const GITIGNORE = `# jrabbit local store. Only rules/ is meant to be versioned.
 `;
 
 const now = () => new Date().toISOString();
+
+export type Heartbeat = "agent" | "overlay";
+
+function alive(pid: number | undefined): boolean {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** A lock older than this is considered abandoned (its process crashed mid-write). */
@@ -190,18 +202,40 @@ export class Store {
   /**
    * Pins the human sent that no agent has received yet, marked as delivered in the same
    * locked step so two agent sessions never both pick up the same pin.
+   *
+   * An MCP session passes its pid as `owner`. It also takes back open pins that went to a
+   * session that is gone (or to `jrabbit wait`) without being resolved, so none is stuck.
    */
-  claimUndelivered(): Promise<Pin[]> {
+  claimUndelivered(owner?: number): Promise<{ pins: Pin[]; redelivered: Pin[] }> {
     return this.exclusive(async () => {
-      const pins = (await this.listPins()).filter((p) => p.status === "open" && !p.deliveredAt);
+      const orphan = (p: Pin) => owner !== undefined && p.deliveredTo !== owner && !alive(p.deliveredTo);
+      const pins = (await this.listPins()).filter((p) => p.status === "open" && (!p.deliveredAt || orphan(p)));
+      const redelivered = pins.filter((p) => p.deliveredAt);
       const at = now();
       for (const p of pins) {
         p.deliveredAt = at;
+        if (owner !== undefined) p.deliveredTo = owner;
+        else delete p.deliveredTo;
         p.updatedAt = at;
         await this.writePin(p);
       }
-      return pins;
+      return { pins, redelivered };
     });
+  }
+
+  /**
+   * Heartbeat files shared by every jrabbit process on the project:
+   * `.agent` while an agent waits for pins, `.overlay` while a browser is connected to a review.
+   */
+  async beat(name: Heartbeat): Promise<void> {
+    const file = join(this.dir, `.${name}`);
+    const t = new Date();
+    await utimes(file, t, t).catch(() => writeFile(file, "")).catch(() => undefined);
+  }
+
+  async fresh(name: Heartbeat, ms = 4000): Promise<boolean> {
+    const s = await stat(join(this.dir, `.${name}`)).catch(() => null);
+    return !!s && Date.now() - s.mtimeMs < ms;
   }
 
   private async lastNumber(): Promise<number> {
