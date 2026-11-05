@@ -25,8 +25,5 @@ credentials*.json
 service-account*.json
 .netrc
 
-# brag video: keep the composition, skip renders (copies live in site/media)
-brag-output/work/frames/
-brag-output/work/stills/
-brag-output/work/*.png
-brag-output/brag.*
+# brag video composition: local only (renders are copied to site/media)
+brag-output/
