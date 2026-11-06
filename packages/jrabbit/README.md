@@ -9,15 +9,18 @@
 Stop pasting screenshots into your terminal. jrabbit is an MCP server for Claude Code and Codex: it opens your app with an overlay, you point at elements and comment, and your agent gets each request with the exact source file, applies it and shows you a before/after.
 
 ```sh
-claude mcp add jrabbit -- npx -y jrabbit
+claude mcp add jrabbit -- npx -y jrabbit   # Claude Code
+codex mcp add jrabbit -- npx -y jrabbit    # Codex
 ```
 
-> **Status:** early development. Nothing to install yet.
+Or paste the setup prompt from [jrabbit.dev](https://jrabbit.dev) into your agent: it adds the server and opens your app. No account or API key.
+
+> **Status:** early (0.1). Works with any MCP client over stdio. `file:line` resolution supports React on Next.js (Turbopack or webpack) and Vite. Requires Node 20+ and a running dev server.
 
 ## How it works
 
 1. **Open** — ask your agent to open a review of `localhost:3000`. jrabbit proxies your dev server and injects the overlay. Your code is never touched.
-2. **Point** — click an element, write what you want, hit Send.
+2. **Point** — press **P**, click an element, write what you want, hit **Send**.
 3. **Fix** — your agent receives each pin with screenshot, selector, viewport and `file:line`, then edits the code.
 4. **Check** — every pin shows before/after. Approve or reopen.
 5. **Remember** — corrections you repeat become rules in `.jrabbit/rules/`, versioned with your repo.
