@@ -130,20 +130,29 @@ export function App({ api, host }: Props) {
   }, [mode, target]);
 
   // Keyboard: P toggles pointing. Esc closes the composer, then point mode, then the panel.
+  // The listener reads a ref, not its closure: effects re-run after paint, so a second Esc
+  // pressed before that would still see the composer open and leave point mode on.
+  const keys = useRef({ target, mode, live });
+  keys.current = { target, mode, live };
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      const now = keys.current;
       const typing = e.composedPath().some((n) => n instanceof HTMLTextAreaElement || n instanceof HTMLInputElement || (n as HTMLElement).isContentEditable);
       if (e.key === "Escape") {
-        if (target) setTarget(null);
-        else if (mode === "point") setMode("idle");
-        else setPanel(null);
-      } else if (live && !typing && (e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (now.target) {
+          now.target = null;
+          setTarget(null);
+        } else if (now.mode === "point") {
+          now.mode = "idle";
+          setMode("idle");
+        } else setPanel(null);
+      } else if (now.live && !typing && (e.key === "p" || e.key === "P") && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setMode((m) => (m === "point" ? "idle" : "point"));
       }
     };
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
-  }, [target, live, mode]);
+  }, []);
 
   // Leave point mode if the connection drops: pins could not be saved.
   useEffect(() => {
