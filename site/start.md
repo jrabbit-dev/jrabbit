@@ -27,13 +27,13 @@ Use the one that matches you. Do not install anything globally.
 **Claude Code**, from the project root:
 
 ```sh
-claude mcp add jrabbit -- npx -y jrabbit@0.1.2
+claude mcp add jrabbit -- npx -y jrabbit@0.1.3
 ```
 
 **Codex**:
 
 ```sh
-codex mcp add jrabbit -- npx -y jrabbit@0.1.2
+codex mcp add jrabbit -- npx -y jrabbit@0.1.3
 ```
 
 **Cursor**, merge this into `.cursor/mcp.json` at the project root, keeping any other servers:
@@ -43,14 +43,14 @@ codex mcp add jrabbit -- npx -y jrabbit@0.1.2
   "mcpServers": {
     "jrabbit": {
       "command": "npx",
-      "args": ["-y", "jrabbit@0.1.2"],
+      "args": ["-y", "jrabbit@0.1.3"],
       "env": { "JRABBIT_ROOT": "${workspaceFolder}" }
     }
   }
 }
 ```
 
-Other MCP clients: a stdio server with command `npx` and args `-y jrabbit@0.1.2`. jrabbit uses the workspace root the client shares over MCP; if the client shares none, it uses the folder it starts in. Set `JRABBIT_ROOT` to the project path to pin it.
+Other MCP clients: a stdio server with command `npx` and args `-y jrabbit@0.1.3`. jrabbit uses the workspace root the client shares over MCP; if the client shares none, it uses the folder it starts in. Set `JRABBIT_ROOT` to the project path to pin it.
 
 ## 3. Find the dev server
 
@@ -66,16 +66,16 @@ You only receive pins while you are waiting for them, and jrabbit cannot wake yo
 
 1. Start it in the background and leave it running. It opens the browser:
    ```sh
-   npx -y jrabbit@0.1.2 open http://localhost:3000
+   npx -y jrabbit@0.1.3 open http://localhost:3000
    ```
 2. Tell the human in one line: in the browser tab that opened, press **P** to point at an element, write a comment, and press **Send**. Do not end your turn.
 3. Wait for their pins. This blocks up to 50 seconds and prints the pins as JSON: comment, selector, `file:line` and the path of the before screenshot. On `timeout`, run it again right away:
    ```sh
-   npx -y jrabbit@0.1.2 wait
+   npx -y jrabbit@0.1.3 wait
    ```
 4. For each pin, look at the screenshot, edit the code, then resolve it. The browser captures the after shot and the human approves or reopens there. Then go back to step 3:
    ```sh
-   npx -y jrabbit@0.1.2 resolve 1 "Halved the space above the price"
+   npx -y jrabbit@0.1.3 resolve 1 "Halved the space above the price"
    ```
 
 Pins are saved in `.jrabbit/`, shared with the MCP server, so the jrabbit tools pick up where you left off in the next session.
