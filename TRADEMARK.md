@@ -30,4 +30,4 @@ The files in [`brand/`](brand/) are covered by this policy and by [`brand/LICENS
 
 ## Questions
 
-For permission requests or to report misuse, write to trademark@jrabbit.dev.
+For permission requests or to report misuse, write to info@jrabbit.dev.
