@@ -122,6 +122,9 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .shots figure { margin: 0; }
 .shots figcaption { color: var(--muted); margin-bottom: 2px; }
 .shots img { display: block; width: 100%; height: 90px; object-fit: contain; background: #fff; border-radius: 4px; }
+.shots[data-wide] { grid-template-columns: max-content; overflow-x: auto; padding-bottom: 2px; }
+.shots[data-wide] figcaption { position: sticky; left: 0; width: max-content; }
+.shots[data-wide] img { width: auto; height: auto; max-width: none; max-height: 90px; }
 .reopen textarea { width: 100%; min-height: 48px; margin-top: 8px; padding: 6px; font: inherit; color: var(--fg); background: rgba(255,255,255,.05); border: 1px solid var(--line); border-radius: 6px; }
 .rule-body { white-space: pre-wrap; color: var(--muted); margin-top: 4px; }
 

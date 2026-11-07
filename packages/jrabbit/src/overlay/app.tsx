@@ -295,6 +295,12 @@ function Status({ connection, state }: { connection: Connection; state: OverlayS
   );
 }
 
+/**
+ * Large wide elements (nav bars, banners) would shrink to a sliver side by side. Stack them
+ * instead, near their real size, and scroll before and after together. Small ones still fit.
+ */
+const isWide = ({ element: { rect } }: Pin) => rect.width > 320 && rect.width > rect.height * 2;
+
 /** What the human reads on a pin: "open" splits into sent (not picked up yet) and working. */
 const statusLabel = (p: Pin) => (p.status === "open" ? (p.deliveredAt ? "working" : "sent") : p.status);
 
@@ -479,7 +485,7 @@ function PinItem({ pin, api }: { pin: Pin; api: Api }) {
       {src && <p class="src">{src}</p>}
       {lastNote && <p class="note">{lastNote.by === "agent" ? "Agent" : "You"}: {lastNote.note}</p>}
       {(pin.shots.before || pin.shots.after) && (
-        <div class="shots">
+        <div class="shots" data-wide={isWide(pin) ? "" : undefined}>
           <figure>
             <figcaption>Before</figcaption>
             {pin.shots.before && <img src={api.shotUrl(pin.shots.before)} alt={`Before #${pin.n}`} />}
