@@ -60,4 +60,4 @@ The MIT License covers the code, not the jrabbit name or logo. See [TRADEMARK.md
 
 ## Code of conduct
 
-This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md). Report unacceptable behavior to conduct@jrabbit.dev.
+This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md). Report unacceptable behavior to info@jrabbit.dev.
