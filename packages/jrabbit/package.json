@@ -1,7 +1,7 @@
 {
   "name": "jrabbit",
   "version": "0.1.3",
-  "description": "Point at your UI. Your coding agent fixes it.",
+  "description": "Your partner for shipping products. Show Claude Code, Codex or Cursor what to change in your running app.",
   "license": "MIT",
   "author": "Tomás Osses (https://github.com/ftosses)",
   "homepage": "https://github.com/jrabbit-dev/jrabbit#readme",

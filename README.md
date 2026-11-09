@@ -4,9 +4,11 @@
 
 <h1 align="center">jrabbit</h1>
 
-<p align="center"><strong>Point at your UI. Your coding agent fixes it.</strong></p>
+<p align="center"><strong>Your partner for shipping products.</strong></p>
 
-Stop pasting screenshots into your terminal. jrabbit is an MCP server for Claude Code and Codex: it opens your app with an overlay, you point at elements and comment, and your agent gets each request with the exact source file, applies it and shows you a before/after.
+Show your agent what you want changed in your running app. It edits the right file and shows you the result.
+
+jrabbit is an MCP server for Claude Code, Codex and Cursor. It opens your app with an overlay: you click what you want changed and say how, and your agent gets the exact source file, makes the change and shows you a before and after.
 
 ```sh
 claude mcp add jrabbit -- npx -y jrabbit   # Claude Code

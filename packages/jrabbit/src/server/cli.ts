@@ -9,7 +9,7 @@ declare const __VERSION__: string;
 const VERSION = typeof __VERSION__ === "string" ? __VERSION__ : "dev";
 
 const HELP = `jrabbit ${VERSION}
-Point at your UI. Your coding agent fixes it.
+Your partner for shipping products.
 
 Usage
   jrabbit                        Run the MCP server over stdio (what your agent runs)
