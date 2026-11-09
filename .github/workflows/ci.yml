@@ -44,9 +44,12 @@ jobs:
         working-directory: packages/jrabbit
         run: |
           npm pack --silent
+          tar -tzf jrabbit-*.tgz > /tmp/contents.txt
           for f in dist/cli.js dist/overlay.js bin/jrabbit.js; do
-            tar -tzf jrabbit-*.tgz | grep -qx "package/$f" || { echo "::error::$f is missing from the package"; exit 1; }
+            grep -qx "package/$f" /tmp/contents.txt || { echo "::error::$f is missing from the package"; exit 1; }
           done
-          mkdir /tmp/smoke && tar -xzf jrabbit-*.tgz -C /tmp/smoke
-          (cd /tmp/smoke/package && npm install --omit=dev --ignore-scripts --no-audit --no-fund --silent)
-          test "$(node /tmp/smoke/package/bin/jrabbit.js --version)" = "$(node -p "require('./package.json').version")"
+          # Install it the way a user does: as a dependency of an empty project.
+          tgz="$PWD/$(ls jrabbit-*.tgz)"
+          mkdir /tmp/smoke && cd /tmp/smoke && echo '{"private":true}' > package.json
+          npm install --no-audit --no-fund "$tgz"
+          test "$(node_modules/.bin/jrabbit --version)" = "$(node -p "require('$OLDPWD/package.json').version")"
