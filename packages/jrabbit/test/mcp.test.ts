@@ -8,7 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { pathToFileURL } from "node:url";
-import { clientRoot, createMcpServer, formatPin, searchHints } from "../src/server/mcp.js";
+import { afterShotTimeout, clientRoot, createMcpServer, formatPin, searchHints } from "../src/server/mcp.js";
 import { ReviewServer } from "../src/server/review.js";
 import { Store } from "../src/server/store.js";
 import type { Pin } from "../src/shared/types.js";
@@ -62,7 +62,8 @@ beforeAll(async () => {
   store = new Store(root);
   review = new ReviewServer(store, overlay);
 
-  const server = createMcpServer(store, review, "test");
+  // Short budget so the test with a silent browser ends quickly.
+  const server = createMcpServer(store, review, "test", { afterShotBudgetMs: 1500 });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: "test", version: "0" });
   await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
@@ -208,6 +209,28 @@ describe("MCP server", () => {
     expect((await store.getPin("#3"))?.status).toBe("resolved");
   });
 
+  it("caps the wait for after shots when the browser is on another page", async () => {
+    // A connected overlay that never answers, like one showing a different page.
+    const sse = http.get(`${review.origin}/__jrabbit/api/events?t=${review.token}`);
+    await new Promise<void>((r) => sse.on("response", () => r()));
+    try {
+      const started = Date.now();
+      const res = await call("resolve_feedback", {
+        pins: [
+          { id: "#1", summary: "a" },
+          { id: "#2", summary: "b" },
+          { id: "#3", summary: "c" },
+        ],
+      });
+      expect(Date.now() - started).toBeLessThan(3000);
+      expect(res.json.resolved.map((r: { afterShot: string }) => r.afterShot)).toEqual(["not captured", "not captured", "not captured"]);
+      expect(res.json.notice).toContain("#1 #2 #3");
+      expect(res.json.notice).toContain("another page than /");
+    } finally {
+      sse.destroy();
+    }
+  });
+
   it("refuses a resolve with neither id nor pins", async () => {
     const res = await call("resolve_feedback", { summary: "x" });
     expect(res.isError).toBe(true);
@@ -297,5 +320,15 @@ describe("search hints", () => {
       history: [],
     } as unknown as Pin;
     expect(formatPin(pin)).not.toHaveProperty("find");
+  });
+});
+
+describe("afterShotTimeout", () => {
+  it("gives later pins more time but never passes the batch budget", () => {
+    expect(afterShotTimeout(0)).toBe(15_000);
+    expect(afterShotTimeout(2)).toBe(23_000);
+    // 20 pins used to wait up to 91 s, past the 60 s most clients allow.
+    expect(Math.max(...Array.from({ length: 20 }, (_, i) => afterShotTimeout(i)))).toBeLessThanOrEqual(45_000);
+    expect(afterShotTimeout(5, 1000)).toBe(1000);
   });
 });
