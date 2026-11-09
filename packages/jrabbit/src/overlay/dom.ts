@@ -1,5 +1,6 @@
 import { domToPng } from "modern-screenshot";
 import type { DebugEntry, PinElement } from "../shared/types.js";
+import { maskClonedField } from "./sensitive.js";
 
 const isUnique = (sel: string) => {
   try {
@@ -188,6 +189,10 @@ export async function capture(el: Element, host: Element): Promise<string | null
       // The element's own margin would push it inside the shot and crop it.
       style: { margin: "0" },
       filter: (node) => node !== host,
+      // Credentials, card numbers and tokens never reach the PNG (SECURITY.md #7).
+      onCloneEachNode: (node) => {
+        if (node.nodeType === 1) maskClonedField(node as Element);
+      },
       timeout: 8000,
     });
   } catch {
