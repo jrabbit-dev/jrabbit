@@ -37,6 +37,21 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           test "$TAG" = "v$version" || { echo "::error::Tag $TAG does not match package version v$version"; exit 1; }
+      - name: Install
+        run: npm ci
+      - name: Build
+        working-directory: packages/jrabbit
+        run: npm run build
+      - name: Typecheck and test
+        working-directory: packages/jrabbit
+        run: npm run typecheck && npm test
+      - name: Package must contain the build
+        working-directory: packages/jrabbit
+        run: |
+          files=$(npm pack --dry-run --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].files.map(f=>f.path).join("\n")))')
+          for f in dist/cli.js dist/overlay.js bin/jrabbit.js; do
+            echo "$files" | grep -qx "$f" || { echo "::error::$f is missing from the package"; exit 1; }
+          done
       - name: Publish
         working-directory: packages/jrabbit
         run: npm publish --provenance --access public

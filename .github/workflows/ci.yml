@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build, typecheck and test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: npm ci
+      - name: Build
+        working-directory: packages/jrabbit
+        run: npm run build
+      - name: Typecheck
+        working-directory: packages/jrabbit
+        run: npm run typecheck
+      - name: Test
+        working-directory: packages/jrabbit
+        run: npm test
+      - name: The packed tarball runs
+        working-directory: packages/jrabbit
+        run: |
+          npm pack --silent
+          for f in dist/cli.js dist/overlay.js bin/jrabbit.js; do
+            tar -tzf jrabbit-*.tgz | grep -qx "package/$f" || { echo "::error::$f is missing from the package"; exit 1; }
+          done
+          mkdir /tmp/smoke && tar -xzf jrabbit-*.tgz -C /tmp/smoke
+          (cd /tmp/smoke/package && npm install --omit=dev --ignore-scripts --no-audit --no-fund --silent)
+          test "$(node /tmp/smoke/package/bin/jrabbit.js --version)" = "$(node -p "require('./package.json').version")"
