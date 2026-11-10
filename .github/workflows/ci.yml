@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build, typecheck and test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: npm ci
+      - name: Build
+        working-directory: packages/jrabbit
+        run: npm run build
+      - name: Typecheck
+        working-directory: packages/jrabbit
+        run: npm run typecheck
+      - name: Test
+        working-directory: packages/jrabbit
+        run: npm test
+      - name: The packed tarball runs
+        working-directory: packages/jrabbit
+        run: |
+          npm pack --silent
+          tar -tzf jrabbit-*.tgz > /tmp/contents.txt
+          for f in dist/cli.js dist/overlay.js bin/jrabbit.js; do
+            grep -qx "package/$f" /tmp/contents.txt || { echo "::error::$f is missing from the package"; exit 1; }
+          done
+          # Install it the way a user does: as a dependency of an empty project.
+          tgz="$PWD/$(ls jrabbit-*.tgz)"
+          mkdir /tmp/smoke && cd /tmp/smoke && echo '{"private":true}' > package.json
+          npm install --no-audit --no-fund "$tgz"
+          test "$(node_modules/.bin/jrabbit --version)" = "$(node -p "require('$OLDPWD/package.json').version")"
