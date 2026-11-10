@@ -52,7 +52,7 @@ These are the guarantees jrabbit is built around. A change that breaks one of th
 4. **Third-party services are opt-in.** Speech-to-text runs locally by default; any cloud provider requires explicit consent per use.
 5. **Approvals are human.** The agent can never mark a pin as approved by a person.
 6. **jrabbit does not edit your code.** Your coding agent does, under its own permission model. jrabbit only reads source files to resolve `file:line`.
-7. **Secrets stay out of pins.** Input values of `password`, `hidden` and autocomplete-credential fields are never stored in pins, DOM snapshots or logs.
+7. **Secrets stay out of pins.** Input values of `password`, `hidden` and autocomplete-credential fields are never stored in pins, DOM snapshots or logs. Screenshots mask them too, along with card (`cc-*`), `one-time-code` and fields named like a token, API key or secret. Add `data-jrabbit-mask` to any other field to mask it, or `data-jrabbit-mask="false"` to show one we mask by mistake.
 
 ## Supply chain
 
