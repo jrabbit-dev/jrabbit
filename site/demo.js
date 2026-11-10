@@ -4,6 +4,7 @@
 const PROMPT =
   "Set up jrabbit in this project: read https://jrabbit.dev/start.md and follow it. When it's ready, open a review of my local dev server.";
 const CLIENTS = {
+  init: { cmd: "npx jrabbit init", note: "Run it from your project root. It sets up every agent it finds." },
   claude: { cmd: "claude mcp add jrabbit -- npx -y jrabbit", note: "Run it from your project root." },
   codex: { cmd: "codex mcp add jrabbit -- npx -y jrabbit", note: "Run it from your project root." },
   cursor: {
@@ -19,7 +20,7 @@ const CLIENTS = {
     note: "Add it to <code>.cursor/mcp.json</code> in your project, next to any servers you already have.",
   },
 };
-let client = "claude";
+let client = "init";
 
 const FRAMES = {
   a: "M9 0h3v1h-3zM7 1h3v1h-3zM2 2h5v1h-5zM1 3h1v1h-1zM3 3h2v1h-2zM7 3h5v1h-5zM13 3h1v1h-1zM0 4h5v1h-5zM6 4h7v1h-7zM1 5h12v1h-12zM2 6h2v1h-2zM8 6h6v1h-6zM1 7h2v1h-2zM10 7h4v1h-4zM0 8h1v1h-1zM11 8h5v1h-5z",
@@ -708,13 +709,13 @@ function openComposer(el) {
   state.target = el;
   showHover(el);
   const field = h("textarea", { "aria-label": "What should change?", placeholder: "What should change?", rows: 3 });
-  const add = h("button", { type: "button", class: "add", disabled: true, onclick: () => addPin(field.value) }, "Add pin");
+  const add = h("button", { type: "button", class: "add", disabled: true, onclick: () => addPin(field.value, true) }, "Send ⌘↵");
   field.addEventListener("input", () => (add.disabled = !field.value.trim()));
   field.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && field.value.trim()) {
-      e.preventDefault();
-      addPin(field.value);
-    }
+    if (e.key !== "Enter" || e.shiftKey || !field.value.trim()) return;
+    e.preventDefault();
+    // Like the real overlay: ⌘↵ (or Enter here) sends it, ⌥↵ keeps it to send several together.
+    addPin(field.value, !e.altKey);
   });
   composer = h(
     "div",
@@ -745,15 +746,16 @@ function closeComposer() {
   return el;
 }
 
-function addPin(text) {
+function addPin(text, andSend = false) {
   const el = closeComposer();
   const n = state.pins.length + 1;
   const marker = h("div", { class: "jr jr-marker", "data-status": "open", role: "img", "aria-label": `Pin ${n}: ${text.trim()}` }, String(n));
   document.body.append(marker);
   state.pins.push({ id: pinId(), n, status: "open", comment: text.trim(), el, marker, view: viewport() });
   placeMarker(state.pins.at(-1));
-  announce(`Pin ${n} added. Press Send when you're done.`);
   render();
+  if (andSend) return send();
+  announce(`Pin ${n} added. Press Send when you're done.`);
   pointBtn.focus({ preventScroll: true });
 }
 

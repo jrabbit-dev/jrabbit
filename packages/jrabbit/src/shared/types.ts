@@ -98,6 +98,8 @@ export interface NewPinInput {
   debug: DebugEntry[];
   /** PNG data URL. */
   shot?: string | null;
+  /** Send the pin (and any waiting drafts) to the agent right away, in the same request. */
+  send?: boolean;
 }
 
 /** none: no agent (CLI review). connected: agent attached but not waiting. listening: in wait_for_feedback. */
@@ -108,6 +110,8 @@ export interface OverlayState {
   rules: Rule[];
   target: string | null;
   agent: AgentState;
+  /** The review was ended (Done in the overlay, or close_review). Sending a pin reopens it. */
+  closed: boolean;
 }
 
 export type ServerEvent =

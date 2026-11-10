@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { pathToFileURL } from "node:url";
-import { afterShotTimeout, clientRoot, createMcpServer, formatPin, searchHints } from "../src/server/mcp.js";
+import { afterShotTimeout, clientRoot, createMcpServer, formatPin, searchHints, waitCap } from "../src/server/mcp.js";
 import { ReviewServer } from "../src/server/review.js";
 import { Store } from "../src/server/store.js";
 import type { Pin } from "../src/shared/types.js";
@@ -82,6 +82,7 @@ describe("MCP server", () => {
     expect(Object.keys(byName).sort()).toEqual(
       [
         "archive_feedback",
+        "close_review",
         "delete_rule",
         "get_feedback",
         "list_feedback",
@@ -145,9 +146,14 @@ describe("MCP server", () => {
     expect(res.json.next).toContain("Nobody has the review open");
   });
 
-  it("caps the wait under the default client tool timeout", async () => {
-    const res = await call("wait_for_feedback", { timeout_seconds: 600 });
+  it("rejects a wait longer than any client allows", async () => {
+    const res = await call("wait_for_feedback", { timeout_seconds: 4000 });
     expect(res.isError).toBe(true);
+  });
+
+  it("reports the version and how long it waits for this client", async () => {
+    const res = await call("status");
+    expect(res.json).toMatchObject({ version: "test", waitSeconds: 55, closed: false });
   });
 
   it("wakes up when the human presses Send, and is listening meanwhile", async () => {
@@ -269,6 +275,105 @@ describe("MCP server", () => {
     expect(feedback.status).toBe("feedback");
     expect(feedback.pins.map((p: { comment: string }) => p.comment)).toEqual(["Make it the primary button"]);
     expect(feedback.next).toContain("without asking");
+  });
+
+  const api = (path: string, body: unknown = {}) =>
+    fetch(`${review.origin}/__jrabbit/api${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-jrabbit-token": review.token },
+      body: JSON.stringify(body),
+    });
+  const newPin = (comment: string, send?: boolean) => ({
+    comment,
+    send,
+    page: { url: `${review.origin}/`, path: "/", title: "t" },
+    viewport: { width: 1280, height: 800, dpr: 1 },
+    element: { selector: "main > h1", tag: "h1", text: "Pricing", rect: { x: 0, y: 0, width: 200, height: 40 } },
+    debug: [],
+  });
+
+  it("sends a pin in the same request that creates it, and wakes the agent", async () => {
+    const waiting = call("wait_for_feedback", { timeout_seconds: 10 });
+    await new Promise((r) => setTimeout(r, 100));
+    const created = await api("/pins", newPin("Tighter", true));
+    expect((await created.json()).status).toBe("open");
+    const res = await waiting;
+    expect(res.json.status).toBe("feedback");
+    expect(res.json.pins.map((p: { comment: string }) => p.comment)).toEqual(["Tighter"]);
+  });
+
+  it("approves every resolved pin at once", async () => {
+    const open = (await store.listPins()).filter((p) => p.status === "open");
+    await call("resolve_feedback", { pins: open.map((p) => ({ id: p.id, summary: "Done" })) });
+    const before = (await store.listPins()).filter((p) => p.status === "resolved").length;
+    expect(before).toBeGreaterThan(1);
+    expect(await (await api("/approve-all")).json()).toEqual({ approved: before });
+    expect((await store.listPins()).some((p) => p.status === "resolved")).toBe(false);
+  });
+
+  it("stops a wait when the human presses Done", async () => {
+    const waiting = call("wait_for_feedback", { timeout_seconds: 20 });
+    await new Promise((r) => setTimeout(r, 100));
+    await api("/done");
+    const res = await waiting;
+    expect(res.json.status).toBe("done");
+    expect(res.json.next).toContain("Stop waiting");
+    // Still ended: the next wait returns at once instead of blocking.
+    expect((await call("wait_for_feedback", { timeout_seconds: 20 })).json.status).toBe("done");
+  });
+
+  it("starts again when the human sends another pin", async () => {
+    await api("/pins", newPin("One more", true));
+    expect(store.isClosed()).toBe(false);
+    expect((await call("wait_for_feedback", { timeout_seconds: 1 })).json.status).toBe("feedback");
+  });
+
+  it("closes the review from the agent, and open_review reopens it", async () => {
+    const res = await call("close_review");
+    expect(res.json).toMatchObject({ closed: true });
+    expect(store.isClosed()).toBe(true);
+    await call("open_review", { url: targetUrl(), open: false, wait_seconds: 0 });
+    expect(store.isClosed()).toBe(false);
+  });
+
+  it("stops waiting when the review is open but untouched for a long time", async () => {
+    await store.beat("overlay");
+    const old = new Date(Date.now() - 60 * 60_000);
+    utimesSync(join(store.dir, ".human"), old, old);
+    const res = await call("wait_for_feedback", { timeout_seconds: 1 });
+    expect(res.json.status).toBe("idle");
+    expect(res.json.next).toContain("Stop waiting");
+  });
+});
+
+describe("a wait with no browser on the review", () => {
+  it("ends early instead of running out the whole wait", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jrabbit-nobrowser-"));
+    const lone = new Store(root);
+    await lone.init();
+    const server = createMcpServer(lone, new ReviewServer(lone, join(root, "overlay.js")), "test", { noBrowserMs: 500 });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const c = new Client({ name: "test", version: "0" });
+    await Promise.all([server.connect(serverSide), c.connect(clientSide)]);
+    const started = Date.now();
+    const res = (await c.callTool({ name: "wait_for_feedback", arguments: { timeout_seconds: 50 } })) as { content: Array<{ text?: string }> };
+    expect(JSON.parse(res.content[0]!.text!).status).toBe("timeout");
+    expect(Date.now() - started).toBeLessThan(6000);
+    await c.close();
+  }, 10_000);
+});
+
+describe("waitCap", () => {
+  it("waits long in Claude Code and under 60 s everywhere else", () => {
+    expect(waitCap("claude-code", undefined)).toBe(270);
+    expect(waitCap("codex-mcp-client", undefined)).toBe(55);
+    expect(waitCap(undefined, undefined)).toBe(55);
+  });
+
+  it("lets JRABBIT_WAIT_SECONDS override it, within an hour", () => {
+    expect(waitCap("codex-mcp-client", "300")).toBe(300);
+    expect(waitCap("claude-code", "99999")).toBe(3600);
+    expect(waitCap("claude-code", "nope")).toBe(270);
   });
 });
 

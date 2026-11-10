@@ -10,6 +10,7 @@ import { openBrowser } from "./open-browser.js";
 import type { ReviewServer } from "./review.js";
 import type { Store } from "./store.js";
 import { log } from "./log.js";
+import { took } from "../shared/took.js";
 
 type Content =
   | { type: "text"; text: string }
@@ -19,10 +20,29 @@ type Content =
 const MAX_IMAGES = 8;
 
 /** Most MCP clients cut tool calls at 60 s (Codex by default), so a wait must end before that. */
-const MAX_WAIT_SECONDS = 55;
-const DEFAULT_WAIT_SECONDS = 50;
+const SHORT_WAIT_SECONDS = 55;
+/**
+ * Claude Code does not cut long tool calls. Every wait that times out costs a model call with
+ * the whole conversation, so wait as long as the prompt cache stays warm (5 min) and no longer.
+ */
+const LONG_WAIT_SECONDS = 270;
+const MAX_WAIT_SECONDS = 3600;
 /** open_review also starts the dev server probe and the proxy, so it waits a bit less. */
-const OPEN_WAIT_SECONDS = 45;
+const OPEN_WAIT_MARGIN_SECONDS = 10;
+/** A long wait ends early when no browser has had the review open for this long (a reload takes less). */
+const NO_BROWSER_MS = 30_000;
+/** With the review open but untouched for this long, the agent stops waiting. */
+const IDLE_MS = 30 * 60_000;
+
+/**
+ * The longest one wait may last for this client. JRABBIT_WAIT_SECONDS overrides it, for
+ * clients whose tool timeout was raised (e.g. Codex tool_timeout_sec).
+ */
+export function waitCap(clientName: string | undefined, env: string | undefined = process.env.JRABBIT_WAIT_SECONDS): number {
+  const fromEnv = Number(env);
+  if (env && Number.isFinite(fromEnv) && fromEnv >= 1) return Math.min(Math.round(fromEnv), MAX_WAIT_SECONDS);
+  return /^claude-code/i.test(clientName ?? "") ? LONG_WAIT_SECONDS : SHORT_WAIT_SECONDS;
+}
 /**
  * resolve_feedback waits at most this long for after screenshots, however many pins it got,
  * so a batch ends well before the client's 60 s limit even when the browser is elsewhere.
@@ -39,7 +59,11 @@ export function afterShotTimeout(i: number, budgetMs = AFTER_SHOT_BUDGET_MS): nu
 
 const INSTRUCTIONS = `jrabbit lets a human point at UI in their browser and leave feedback pins for you.
 
-Stay in the loop. You only receive pins while you are inside wait_for_feedback, and jrabbit cannot wake you once your turn ends. So after open_review, do not end your turn: keep calling wait_for_feedback until the human says they are done. A sent pin is the request itself: change the code without asking the human to confirm.
+You are the human's partner for shipping: they point, you fix, right away. A sent pin is the request itself: change the code without asking the human to confirm, and never make them ask twice.
+
+Stay in the loop. You only receive pins while you are inside wait_for_feedback, and jrabbit cannot wake you once your turn ends. So after open_review, do not end your turn: keep calling wait_for_feedback until it returns status "done" or "idle", or the human tells you they are done (then call close_review).
+
+Be fast. Fix the pins of a batch in one pass and resolve them together. Do not narrate, re-plan or run the whole test suite between pins: the after screenshot is the check, and the human is watching the page.
 
 Loop:
 1. Tell the human in one line to point (P), comment and press Send. Then open_review(url) with the app's dev server URL: it opens the browser and already waits for the first pins.
@@ -47,6 +71,7 @@ Loop:
 3. For each pin, edit the code. pin.source is where the pointed element is written; sourceChain lists the owner components. pin.element.styles has the element's current computed styles. When pin.source is null, search the code with pin.find.
 4. resolve_feedback for each pin, or for several at once with pins: [{id, summary}]. It captures an after screenshot: look at it and fix again if it is not right.
 5. Go back to wait_for_feedback() for the next batch or for pins the human reopened.
+6. When the human says they are done, close_review(). When wait_for_feedback returns "done" (they ended it in the browser) or "idle", stop and sum up what changed in a line or two.
 
 Rules: call list_rules() before editing and follow every approved rule. When the human repeats the same correction, propose_rule() so it becomes a draft rule they can approve. update_rule() rewords a rule (it goes back to draft); delete_rule() removes a draft.
 
@@ -154,6 +179,10 @@ export interface McpOptions {
   clientRoots?: boolean;
   /** Overall wait for after screenshots in one resolve_feedback call. Tests shorten it. */
   afterShotBudgetMs?: number;
+  /** How long the review may sit untouched before the agent stops waiting. Tests shorten it. */
+  idleMs?: number;
+  /** How long a wait goes on with no browser on the review. Tests shorten it. */
+  noBrowserMs?: number;
 }
 
 export function createMcpServer(store: Store, review: ReviewServer, version: string, options: McpOptions = {}): McpServer {
@@ -180,6 +209,10 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
       .catch((err) => log("roots unavailable, using the current directory", err))
       .finally(rootReady);
   };
+  /** Known once the client has initialized, which is before any tool call. */
+  const cap = () => waitCap(server.server.getClientVersion()?.name);
+  const idleMs = options.idleMs ?? IDLE_MS;
+  const noBrowserMs = options.noBrowserMs ?? NO_BROWSER_MS;
   let waiting = 0;
   /** open_review ran and no browser has connected since: do not reopen the browser in a loop. */
   let reopenedForNobody = false;
@@ -193,7 +226,10 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
     review.setAgent("listening");
     try {
       let claim = await store.claimUndelivered(process.pid);
-      while (!claim.pins.length && Date.now() < deadline && !extra.signal.aborted) {
+      let browserSeen = Date.now();
+      while (!claim.pins.length && Date.now() < deadline && !extra.signal.aborted && !store.isClosed()) {
+        if (await review.overlayConnected()) browserSeen = Date.now();
+        else if (Date.now() - browserSeen > noBrowserMs) break;
         await store.beat("agent");
         await new Promise<void>((resolve) => {
           const done = () => {
@@ -229,8 +265,29 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
   /** The result of a wait: the pins to work on, or what to do next. Shared by open_review and wait_for_feedback. */
   const feedbackContent = async ({ pins, redelivered }: { pins: Pin[]; redelivered: Pin[] }): Promise<Content[]> => {
     if (!pins.length) {
-      const drafts = (await store.listPins()).filter((p) => p.status === "draft").length;
+      const all = await store.listPins();
+      const drafts = all.filter((p) => p.status === "draft").length;
+      if (store.isClosed()) {
+        const count = (s: PinStatus) => all.filter((p) => p.status === s).length;
+        return [
+          text({
+            status: "done",
+            pins: { resolved: count("resolved"), approved: count("approved"), open: count("open") },
+            next: "The human ended the review. Stop waiting and tell them in one or two lines what changed. If they send another pin later, they will say so: call wait_for_feedback then.",
+          }),
+        ];
+      }
       const connected = await review.overlayConnected();
+      const quiet = await store.age("human");
+      if (connected && quiet !== null && quiet > idleMs) {
+        return [
+          text({
+            status: "idle",
+            drafts,
+            next: `The review has been open but untouched for ${Math.round(quiet / 60_000)} min. Stop waiting and tell the human in one line: send pins and say "check jrabbit" when they are back.`,
+          }),
+        ];
+      }
       const gone = !connected && reopenedForNobody;
       if (connected) reopenedForNobody = false;
       return [
@@ -267,7 +324,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
     "open_review",
     {
       title: "Open review",
-      description: `Open the app in the browser with the jrabbit overlay so the human can point at elements and comment, then wait for their first pins (like wait_for_feedback, up to ${OPEN_WAIT_SECONDS} s). Before calling it, tell the human in one line: press P to point at an element, comment, and press Send. Proxies the dev server; the project's code is not modified. Fails with a clear reason if nothing is running at the URL.`,
+      description: `Open the app in the browser with the jrabbit overlay so the human can point at elements and comment, then wait for their first pins (like wait_for_feedback). Before calling it, tell the human in one line: press P to point at an element, comment, and press Send. Proxies the dev server; the project's code is not modified. Fails with a clear reason if nothing is running at the URL.`,
       inputSchema: {
         url: z.string().describe("Dev server URL, e.g. http://localhost:3000 or http://localhost:3000/pricing"),
         open: z.boolean().optional().describe("Open the browser (default true)"),
@@ -275,9 +332,9 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
           .number()
           .int()
           .min(0)
-          .max(OPEN_WAIT_SECONDS)
+          .max(MAX_WAIT_SECONDS)
           .optional()
-          .describe(`How long to wait for the first pins. Default ${OPEN_WAIT_SECONDS}; 0 returns right away`),
+          .describe("How long to wait for the first pins. Default: as long as your client allows; 0 returns right away"),
       },
       annotations: { ...LOCAL_WRITE, idempotentHint: true },
     },
@@ -300,7 +357,8 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
             "The review shares cookies with the dev server (same host name). If signing in lands the human on the dev server URL (OAuth callbacks), they open the review URL again and stay signed in.",
         }),
       };
-      const seconds = wait_seconds ?? OPEN_WAIT_SECONDS;
+      const longest = cap() - OPEN_WAIT_MARGIN_SECONDS;
+      const seconds = Math.min(wait_seconds ?? longest, longest);
       if (!seconds) {
         return {
           content: [
@@ -319,7 +377,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
     "wait_for_feedback",
     {
       title: "Wait for feedback",
-      description: `Block until the human presses Send (or reopens a pin), then return the new pins with screenshots and source locations. Returns immediately if there are pins you have not received yet. Waits at most ${MAX_WAIT_SECONDS} s; on timeout, call it again. Keep calling it until the human says they are done.`,
+      description: `Block until the human presses Send (or reopens a pin), then return the new pins with screenshots and source locations. Returns immediately if there are pins you have not received yet. On status "timeout", call it again right away. Stop only on status "done" or "idle", or when the human says they are done.`,
       inputSchema: {
         timeout_seconds: z
           .number()
@@ -327,13 +385,13 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
           .min(1)
           .max(MAX_WAIT_SECONDS)
           .optional()
-          .describe(`Default ${DEFAULT_WAIT_SECONDS}`),
+          .describe("Leave it out: jrabbit waits as long as your client allows. Longer values are shortened to that."),
       },
       annotations: { ...LOCAL_WRITE, idempotentHint: false },
     },
     async ({ timeout_seconds }, extra) => {
       await ready();
-      return { content: await feedbackContent(await waitForPins(timeout_seconds ?? DEFAULT_WAIT_SECONDS, extra)) };
+      return { content: await feedbackContent(await waitForPins(Math.min(timeout_seconds ?? cap(), cap()), extra)) };
     },
   );
 
@@ -433,7 +491,8 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
       const budget = options.afterShotBudgetMs ?? AFTER_SHOT_BUDGET_MS;
       const after = await Promise.all(resolved.map((p, i) => review.requestAfterShot(p, afterShotTimeout(i, budget))));
       const pins = resolved.map((p, i) => after[i] ?? p);
-      review.toast(`${pins.map((p) => `#${p.n}`).join(" ")} resolved`);
+      const time = pins.length === 1 ? took(pins[0]!) : null;
+      review.toast(`${pins.map((p) => `#${p.n}`).join(" ")} ${time ? `fixed in ${time}` : "resolved"}`);
 
       const captured = (p: Pin) => Boolean(p.shots.after && after[pins.indexOf(p)]);
       const afterShot = (p: Pin) =>
@@ -581,6 +640,35 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
   );
 
   server.registerTool(
+    "close_review",
+    {
+      title: "Close review",
+      description:
+        "End the review when the human says they are done. Agents stop waiting and the overlay shows the review as ended. Pins and rules stay. open_review, or a new pin from the human, starts it again.",
+      inputSchema: {},
+      annotations: { ...LOCAL_WRITE, idempotentHint: true },
+    },
+    async () => {
+      await ready();
+      await review.close();
+      const pins = await store.listPins();
+      const count = (s: PinStatus) => pins.filter((p) => p.status === s).length;
+      const waitingForApproval = count("resolved");
+      return {
+        content: [
+          text({
+            closed: true,
+            pins: { open: count("open"), resolved: waitingForApproval, approved: count("approved") },
+            next: waitingForApproval
+              ? `Tell the human in one line what changed, and that ${waitingForApproval} resolved pin${waitingForApproval === 1 ? " is" : "s are"} waiting for their approval in the browser.`
+              : "Tell the human in one line what changed.",
+          }),
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
     "status",
     {
       title: "Status",
@@ -596,6 +684,9 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
       return {
         content: [
           text({
+            version,
+            closed: store.isClosed(),
+            waitSeconds: cap(),
             review: review.origin ? { url: review.origin, target: review.target?.origin } : null,
             browsersConnected: review.connectedClients,
             overlayConnected: await review.overlayConnected(),
@@ -628,7 +719,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
               url
                 ? `Open a jrabbit review of ${url}.`
                 : "Find this project's running local dev server (check the dev script and which localhost ports are listening) and open a jrabbit review of it. If none is running, ask me to start it.",
-              "Then follow the jrabbit loop: wait_for_feedback, change the code for each pin, resolve_feedback with a short summary, check the after screenshot, and wait again until I say we are done.",
+              "Then follow the jrabbit loop: wait_for_feedback, change the code for each pin right away, resolve_feedback with a short summary, check the after screenshot, and wait again until I end the review.",
             ].join(" "),
           },
         },

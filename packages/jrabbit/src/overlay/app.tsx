@@ -4,6 +4,7 @@ import type { Api, Connection } from "./api.js";
 import { capture, describe, findElement, reactDebug } from "./dom.js";
 import { rabbitPath, rabbitPathGathered, rabbitPathPush } from "./styles.js";
 import { rebase } from "../shared/url.js";
+import { took } from "../shared/took.js";
 
 type Mode = "idle" | "point";
 type Tab = "pins" | "rules";
@@ -28,7 +29,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const isOurs = (e: Event, host: HTMLElement) => e.composedPath().includes(host);
 
 export function App({ api, host }: Props) {
-  const [state, setState] = useState<OverlayState>({ pins: [], rules: [], target: null, agent: "none" });
+  const [state, setState] = useState<OverlayState>({ pins: [], rules: [], target: null, agent: "none", closed: false });
   const [connection, setConnection] = useState<Connection>("connecting");
   const live = connection === "live";
   const [mode, setMode] = useState<Mode>("idle");
@@ -176,19 +177,23 @@ export function App({ api, host }: Props) {
   const here = state.pins.filter((p) => p.page.path === location.pathname && p.status !== "approved");
   const draftRules = state.rules.filter((r) => r.status === "draft");
 
+  /** The rabbit dashes off and the human learns where the pins went. */
+  const announceSent = (what: string) => {
+    setDash(true);
+    showToast(
+      state.agent === "listening"
+        ? `Sent ${what} to your agent`
+        : state.agent === "none"
+          ? `Saved ${what}. No agent connected yet.`
+          : `Sent ${what}. Your agent picks it up when it finishes what it is doing.`,
+    );
+  };
+
   const send = async () => {
     try {
       const { sent } = await api.send();
       setMode("idle");
-      setDash(true);
-      const pins = `${sent} pin${sent === 1 ? "" : "s"}`;
-      showToast(
-        state.agent === "listening"
-          ? `Sent ${pins} to your agent`
-          : state.agent === "none"
-            ? `Saved ${pins}. No agent connected yet.`
-            : `Sent ${pins}. Your agent is not waiting: tell it to check jrabbit.`,
-      );
+      announceSent(`${sent} pin${sent === 1 ? "" : "s"}`);
     } catch {
       showToast("Could not send. Is jrabbit still running?");
     }
@@ -216,9 +221,12 @@ export function App({ api, host }: Props) {
           host={host}
           api={api}
           onSelect={setTarget}
+          waiting={drafts.length}
           onDone={(pin) => {
             setTarget(null);
-            if (pin) showToast(`#${pin.n} added. Press Send when ready.`);
+            if (!pin) return;
+            if (pin.status === "draft") showToast(`#${pin.n} added. Press Send when ready.`);
+            else announceSent(drafts.length ? `${drafts.length + 1} pins` : `#${pin.n}`);
           }}
         />
       )}
@@ -274,7 +282,10 @@ function Status({ connection, state }: { connection: Connection; state: OverlayS
     hint = "Connecting to jrabbit";
   } else {
     const working = state.pins.filter((p) => p.status === "open" && p.deliveredAt).map((p) => `#${p.n}`);
-    if (state.agent === "none") {
+    if (state.closed && !working.length) {
+      label = "Review ended";
+      hint = "Your agent stopped waiting. Send a pin to start again.";
+    } else if (state.agent === "none") {
       label = "No agent";
       hint = "Pins are saved locally. Your agent receives them when it calls wait_for_feedback.";
     } else if (working.length) {
@@ -288,7 +299,7 @@ function Status({ connection, state }: { connection: Connection; state: OverlayS
     } else {
       tone = "busy";
       label = "Agent connected";
-      hint = "Your agent is connected but not waiting. Pins you send wait until you tell it to check jrabbit.";
+      hint = "Your agent is busy. It picks up the pins you send when it finishes; if it does not, tell it to check jrabbit.";
     }
   }
   return (
@@ -370,8 +381,16 @@ function Peek({ pin, r }: { pin: Pin; r: DOMRect }) {
   );
 }
 
-function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (el: Element) => void; onDone: (pin: Pin | null) => void }) {
-  const { el, host, api, onSelect, onDone } = props;
+function Composer(props: {
+  el: Element;
+  host: HTMLElement;
+  api: Api;
+  /** Drafts already waiting: Send takes them along. */
+  waiting: number;
+  onSelect: (el: Element) => void;
+  onDone: (pin: Pin | null) => void;
+}) {
+  const { el, host, api, waiting, onSelect, onDone } = props;
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -383,7 +402,8 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
   const top = r.bottom + 8 + 160 < innerHeight ? r.bottom + 8 : Math.max(8, r.top - 168);
   const { component } = reactDebug(el);
 
-  const submit = async () => {
+  /** Send goes straight to the agent. Add keeps the pin as a draft, to send several at once. */
+  const submit = async (send: boolean) => {
     if (!comment.trim() || busy) return;
     setBusy(true);
     setError(false);
@@ -395,6 +415,7 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
         element: describe(el),
         debug: reactDebug(el).entries,
         shot: await capture(el, host),
+        send,
       });
       onDone(pin);
     } catch {
@@ -415,7 +436,11 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
         placeholder="What should change?"
         onInput={(e) => setComment((e.target as HTMLTextAreaElement).value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(true);
+          else if (e.key === "Enter" && e.altKey) {
+            e.preventDefault();
+            submit(false);
+          }
         }}
       />
       {error && <p class="error">Could not save the pin. Is jrabbit still running?</p>}
@@ -429,11 +454,14 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
         >
           ↑ Parent
         </button>
-        <button class="btn" onClick={() => onDone(null)}>
+        <button class="btn" onClick={() => onDone(null)} title="Cancel (Esc)">
           Cancel
         </button>
-        <button class="btn primary" disabled={!comment.trim() || busy} onClick={submit}>
-          {busy ? "Adding…" : "Add ⌘↵"}
+        <button class="btn" disabled={!comment.trim() || busy} onClick={() => submit(false)} title="Keep it as a draft and send several at once (⌥↵)">
+          Add
+        </button>
+        <button class="btn primary" disabled={!comment.trim() || busy} onClick={() => submit(true)} title="Send it to your agent now (⌘↵)">
+          {busy ? "Sending…" : waiting ? `Send ${waiting + 1} ⌘↵` : "Send ⌘↵"}
         </button>
       </div>
     </div>
@@ -443,6 +471,7 @@ function Composer(props: { el: Element; host: HTMLElement; api: Api; onSelect: (
 function Panel({ tab, setTab, onClose, state, api }: { tab: Tab; setTab: (t: Tab) => void; onClose: () => void; state: OverlayState; api: Api }) {
   const pins = [...state.pins].reverse();
   const approved = state.pins.filter((p) => p.status === "approved").length;
+  const resolved = state.pins.filter((p) => p.status === "resolved").length;
   return (
     <div class="panel">
       <div class="tabs" role="tablist">
@@ -460,11 +489,23 @@ function Panel({ tab, setTab, onClose, state, api }: { tab: Tab; setTab: (t: Tab
       </div>
       {tab === "pins" &&
         (pins.length ? pins.map((p) => <PinItem key={p.id} pin={p} api={api} />) : <p class="empty">No pins yet. Press P and click an element.</p>)}
-      {tab === "pins" && approved > 0 && (
+      {tab === "pins" && (approved > 0 || resolved > 1 || (!state.closed && state.agent !== "none")) && (
         <div class="row archive">
-          <button class="btn" onClick={() => api.archive()} title="Move approved pins to .jrabbit/archive">
-            Archive {approved} approved
-          </button>
+          {!state.closed && state.agent !== "none" && (
+            <button class="btn grow" style={{ textAlign: "left" }} onClick={() => api.done()} title="End the review: your agent stops waiting">
+              Done
+            </button>
+          )}
+          {approved > 0 && (
+            <button class="btn" onClick={() => api.archive()} title="Move approved pins to .jrabbit/archive">
+              Archive {approved}
+            </button>
+          )}
+          {resolved > 1 && (
+            <button class="btn accent" onClick={() => api.approveAll()}>
+              Approve all {resolved}
+            </button>
+          )}
         </div>
       )}
       {tab === "rules" &&
@@ -482,6 +523,7 @@ function PinItem({ pin, api }: { pin: Pin; api: Api }) {
   const [note, setNote] = useState("");
   const src = pin.source ? `${pin.source.file}:${pin.source.line}` : null;
   const lastNote = [...pin.history].reverse().find((h) => h.note);
+  const time = pin.status === "resolved" || pin.status === "approved" ? took(pin) : null;
   return (
     <div class="item">
       <header>
@@ -489,6 +531,7 @@ function PinItem({ pin, api }: { pin: Pin; api: Api }) {
         <span class="badge" data-status={statusLabel(pin)}>
           {statusLabel(pin)}
         </span>
+        {time && <span class="took">in {time}</span>}
       </header>
       <p>{pin.comment}</p>
       {src && <p class="src">{src}</p>}

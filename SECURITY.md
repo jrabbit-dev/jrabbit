@@ -51,7 +51,7 @@ These are the guarantees jrabbit is built around. A change that breaks one of th
 3. **Nothing leaves your machine unless you ask.** No telemetry without explicit opt-in. Screenshots, recordings, transcripts and pins stay in `.jrabbit/` on disk. Only the `share` tool uploads anything, and only what that round contains.
 4. **Third-party services are opt-in.** Speech-to-text runs locally by default; any cloud provider requires explicit consent per use.
 5. **Approvals are human.** The agent can never mark a pin as approved by a person.
-6. **jrabbit does not edit your code.** Your coding agent does, under its own permission model. jrabbit only reads source files to resolve `file:line`.
+6. **jrabbit does not edit your code.** Your coding agent does, under its own permission model. jrabbit only reads source files to resolve `file:line`. `jrabbit init` writes agent configuration and nothing else: the MCP entry through each client's own CLI, `.cursor/mcp.json`, and one Stop hook in `.claude/settings.local.json` (skip it with `--no-hook`).
 7. **Secrets stay out of pins.** Input values of `password`, `hidden` and autocomplete-credential fields are never stored in pins, DOM snapshots or logs. Screenshots mask them too, along with card (`cc-*`), `one-time-code` and fields named like a token, API key or secret. Add `data-jrabbit-mask` to any other field to mask it, or `data-jrabbit-mask="false"` to show one we mask by mistake.
 
 ## Supply chain
