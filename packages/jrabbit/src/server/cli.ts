@@ -15,7 +15,7 @@ Your partner for shipping products.
 Install
   npx jrabbit init               Set jrabbit up for Claude Code, Codex and Cursor in this project
                                  --claude --codex --cursor  only these
-                                 --no-hook                  let Claude Code end its turn mid-review
+                                 --no-hook                  let the agent end its turn mid-review
 
 Usage
   jrabbit                        Run the MCP server over stdio (what your agent runs)
@@ -23,7 +23,7 @@ Usage
   jrabbit wait [seconds]         Wait for pins the human sends, print them as JSON (default 50 s)
   jrabbit resolve <n> <summary>  Mark pin #n resolved. The open review captures the after shot.
   jrabbit close                  End the review: agents stop waiting
-  jrabbit hook stop              Claude Code Stop hook: keeps the agent in an open review
+  jrabbit hook stop              Stop hook (Claude Code, Codex): keeps the agent in an open review
   jrabbit --version
   jrabbit --help
 
@@ -99,7 +99,7 @@ async function setup(root: string, args: string[]): Promise<void> {
   );
 }
 
-/** Claude Code Stop hook. Prints a block decision while the human is still reviewing; silent otherwise. */
+/** Stop hook for Claude Code and Codex. Prints a block decision while the human is still reviewing; silent otherwise. */
 async function hook(event: string | undefined): Promise<void> {
   if (event !== "stop") {
     console.error("Usage: jrabbit hook stop");
