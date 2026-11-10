@@ -73,7 +73,7 @@ Loop:
 5. Go back to wait_for_feedback() for the next batch or for pins the human reopened.
 6. When the human says they are done, close_review(). When wait_for_feedback returns "done" (they ended it in the browser) or "idle", stop and sum up what changed in a line or two.
 
-Rules: call list_rules() before editing and follow every approved rule. When the human repeats the same correction, propose_rule() so it becomes a draft rule they can approve. update_rule() rewords a rule (it goes back to draft); delete_rule() removes a draft.
+Rules: the approved rules come with the pins (approvedRules). Follow every one; there is no need to call list_rules() first. When the human repeats the same correction, propose_rule() so it becomes a draft rule they can approve. update_rule() rewords a rule (it goes back to draft); delete_rule() removes a draft.
 
 If the human says they sent feedback, or asks you to check jrabbit, call wait_for_feedback (not list_feedback): it hands you the pins to work on.
 
@@ -263,7 +263,8 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
   };
 
   /** The result of a wait: the pins to work on, or what to do next. Shared by open_review and wait_for_feedback. */
-  const feedbackContent = async ({ pins, redelivered }: { pins: Pin[]; redelivered: Pin[] }): Promise<Content[]> => {
+  const feedbackContent = async ({ pins: claimed, redelivered }: { pins: Pin[]; redelivered: Pin[] }): Promise<Content[]> => {
+    const pins = await store.settleShots(claimed);
     if (!pins.length) {
       const all = await store.listPins();
       const drafts = all.filter((p) => p.status === "draft").length;
@@ -563,7 +564,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
     "list_rules",
     {
       title: "List rules",
-      description: "List taste rules. Follow every approved rule when editing UI.",
+      description: "List taste rules, drafts included. The approved ones already come with the pins from wait_for_feedback: follow them when editing UI.",
       inputSchema: { status: z.enum(["draft", "approved"]).optional() },
       annotations: READ_ONLY,
     },

@@ -94,5 +94,5 @@ Pins are saved in `.jrabbit/`, shared with the MCP server, so the jrabbit tools 
 - Make the change without asking first, then call `resolve_feedback` with a short summary. jrabbit captures an after shot. For several pins at once, pass `pins: [{ id, summary }]`.
 - Call `wait_for_feedback` again. The human approves or reopens in the browser; reopened pins and new ones come back through it. Leave `timeout_seconds` out: jrabbit waits as long as your client allows.
 - Stop when it returns `done` or `idle`. When the human says they are done, call `close_review`.
-- If the human repeats the same kind of correction, call `propose_rule`. Rules live in `.jrabbit/rules/`, versioned with the repo, and apply only once the human approves them. Read them with `list_rules` before you start. Fix a rule with `update_rule` (it goes back to draft) or drop a draft with `delete_rule`.
+- If the human repeats the same kind of correction, call `propose_rule`. Rules live in `.jrabbit/rules/`, versioned with the repo, and apply only once the human approves them. The approved ones come with the pins; `list_rules` also shows drafts. Fix a rule with `update_rule` (it goes back to draft) or drop a draft with `delete_rule`.
 - When the human asks to clear the board, call `archive_feedback`: approved pins move to `.jrabbit/archive/`.

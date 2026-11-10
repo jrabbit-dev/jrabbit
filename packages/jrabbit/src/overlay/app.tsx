@@ -26,6 +26,19 @@ const Rabbit = () => (
 const px = (n: number) => `${Math.round(n)}px`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Stable for this tab across reloads, so the server counts each tab once. */
+const TAB = (() => {
+  const fresh = Math.random().toString(36).slice(2);
+  try {
+    const saved = sessionStorage.getItem("jrabbit-tab");
+    if (saved) return saved;
+    sessionStorage.setItem("jrabbit-tab", fresh);
+  } catch {
+    /* storage blocked: one id per page load is enough */
+  }
+  return fresh;
+})();
+
 const isOurs = (e: Event, host: HTMLElement) => e.composedPath().includes(host);
 
 export function App({ api, host }: Props) {
@@ -53,7 +66,11 @@ export function App({ api, host }: Props) {
       if (e.type === "state") setState(e.state);
       if (e.type === "toast") showToast(e.message);
       if (e.type === "capture-after") {
-        if (e.path !== location.pathname) return;
+        if (e.path !== location.pathname) {
+          // Say so, so the agent is not left waiting for a shot this tab cannot take.
+          void api.away(e.id, TAB).catch(() => undefined);
+          return;
+        }
         const asked = Date.now();
         captures = captures.then(async () => {
           // Give HMR time to apply the agent's change.
@@ -408,16 +425,23 @@ function Composer(props: {
     setBusy(send ? "send" : "draft");
     setError(false);
     try {
+      // The pin goes first and its screenshot follows: a slow capture never holds a Send.
       const pin = await api.createPin({
         comment,
         page: { url: location.href, path: location.pathname, title: document.title },
         viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio || 1 },
         element: describe(el),
         debug: reactDebug(el).entries,
-        shot: await capture(el, host),
+        shotLater: true,
         send,
       });
       onDone(pin);
+      // Capturing blocks the page for a moment: let the composer close on screen first.
+      void sleep(50)
+        .then(() => capture(el, host))
+        .catch(() => null)
+        .then((png) => api.before(pin.id, png))
+        .catch(() => undefined);
     } catch {
       setBusy(null);
       setError(true);

@@ -30,6 +30,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A lock older than this is considered abandoned (its process crashed mid-write). */
 const STALE_LOCK_MS = 10_000;
 
+/** How long a delivery waits for before shots that are still uploading. */
+export const SHOT_GRACE_MS = 2000;
+/** A shot this late is not coming. */
+const SHOT_STALE_MS = 15_000;
+
 /** Files-only store in `<root>/.jrabbit/`. One JSON file per pin, PNG shots, Markdown rules. */
 export class Store {
   private _root: string;
@@ -159,6 +164,7 @@ export class Store {
     source: SourceLocation | null,
     sourceChain: SourceLocation[],
     shot?: string | null,
+    shotLater = false,
   ): Promise<Pin> {
     return this.exclusive(async () => {
       const pins = await this.listPins();
@@ -183,6 +189,7 @@ export class Store {
         updatedAt: at,
       };
       if (shot) pin.shots.before = await this.saveShot(id, "before", shot);
+      else if (shotLater) pin.shotPending = true;
       await this.writePin(pin);
       return pin;
     });
@@ -307,6 +314,22 @@ export class Store {
   }
 
   // ---------- shots ----------
+
+  /**
+   * A pin is sent before its before shot is ready, so Send never waits for a screenshot.
+   * Give the shots a moment to land before the pins go to the agent. Works across processes.
+   */
+  async settleShots(pins: Pin[], ms = SHOT_GRACE_MS): Promise<Pin[]> {
+    const deadline = Date.now() + ms;
+    // A browser that went away never uploads: stop expecting the shot.
+    const due = (p: Pin) => p.shotPending === true && Date.now() - Date.parse(p.createdAt) < SHOT_STALE_MS;
+    let current = pins;
+    while (current.some(due) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      current = await Promise.all(current.map(async (p) => (due(p) ? ((await this.getPin(p.id)) ?? p) : p)));
+    }
+    return current;
+  }
 
   async saveShot(id: string, kind: "before" | "after", dataUrl: string): Promise<string> {
     const m = /^data:image\/png;base64,(.+)$/.exec(dataUrl);
