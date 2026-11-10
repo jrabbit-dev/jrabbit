@@ -225,7 +225,7 @@ export function App({ api, host }: Props) {
           onDone={(pin) => {
             setTarget(null);
             if (!pin) return;
-            if (pin.status === "draft") showToast(`#${pin.n} added. Press Send when ready.`);
+            if (pin.status === "draft") showToast(`#${pin.n} added to the queue. Press Send when ready.`);
             else announceSent(drafts.length ? `${drafts.length + 1} pins` : `#${pin.n}`);
           }}
         />
@@ -392,7 +392,7 @@ function Composer(props: {
 }) {
   const { el, host, api, waiting, onSelect, onDone } = props;
   const [comment, setComment] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"send" | "draft" | null>(null);
   const [error, setError] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => ref.current?.focus(), [el]);
@@ -402,10 +402,10 @@ function Composer(props: {
   const top = r.bottom + 8 + 160 < innerHeight ? r.bottom + 8 : Math.max(8, r.top - 168);
   const { component } = reactDebug(el);
 
-  /** Send goes straight to the agent. Add keeps the pin as a draft, to send several at once. */
+  /** Send goes straight to the agent. Add to queue keeps the pin, to send several at once. */
   const submit = async (send: boolean) => {
     if (!comment.trim() || busy) return;
-    setBusy(true);
+    setBusy(send ? "send" : "draft");
     setError(false);
     try {
       const pin = await api.createPin({
@@ -419,16 +419,23 @@ function Composer(props: {
       });
       onDone(pin);
     } catch {
-      setBusy(false);
+      setBusy(null);
       setError(true);
     }
   };
 
   return (
     <div class="composer" style={{ left: px(left), top: px(top) }}>
-      <div class="meta">
-        {component ? `${component} · ` : ""}
-        {el.tagName.toLowerCase()}
+      <div class="head">
+        <div class="meta">
+          {component ? `${component} · ` : ""}
+          {el.tagName.toLowerCase()}
+        </div>
+        {el.parentElement && el.parentElement !== document.body && (
+          <button class="link" onClick={() => el.parentElement && onSelect(el.parentElement)} title="Pin the element around this one instead">
+            ↑ Outer element
+          </button>
+        )}
       </div>
       <textarea
         ref={ref}
@@ -445,23 +452,14 @@ function Composer(props: {
       />
       {error && <p class="error">Could not save the pin. Is jrabbit still running?</p>}
       <div class="row">
-        <button
-          class="btn grow"
-          style={{ textAlign: "left" }}
-          disabled={!el.parentElement || el.parentElement === document.body}
-          onClick={() => el.parentElement && onSelect(el.parentElement)}
-          title="Select the parent element"
-        >
-          ↑ Parent
-        </button>
-        <button class="btn" onClick={() => onDone(null)} title="Cancel (Esc)">
+        <button class="btn ghost" onClick={() => onDone(null)} title="Cancel (Esc)">
           Cancel
         </button>
-        <button class="btn" disabled={!comment.trim() || busy} onClick={() => submit(false)} title="Keep it as a draft and send several at once (⌥↵)">
-          Add
+        <button class="btn" disabled={!comment.trim() || !!busy} onClick={() => submit(false)} title="Leave it in the queue and send all the pins together later (⌥↵)">
+          {busy === "draft" ? "Adding…" : "Add to queue"}
         </button>
-        <button class="btn primary" disabled={!comment.trim() || busy} onClick={() => submit(true)} title="Send it to your agent now (⌘↵)">
-          {busy ? "Sending…" : waiting ? `Send ${waiting + 1} ⌘↵` : "Send ⌘↵"}
+        <button class="btn primary" disabled={!comment.trim() || !!busy} onClick={() => submit(true)} title="Send it to your agent now (⌘↵)">
+          {busy === "send" ? "Sending…" : waiting ? `Send ${waiting + 1} ⌘↵` : "Send ⌘↵"}
         </button>
       </div>
     </div>
