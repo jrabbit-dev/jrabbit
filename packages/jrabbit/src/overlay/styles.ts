@@ -111,6 +111,7 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
 .item:last-child { border-bottom: 0; }
 .item header { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
 .item .n { font-weight: 700; }
+.item .took { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
 .badge { padding: 0 6px; border-radius: 4px; background: rgba(255,255,255,.08); color: var(--muted); }
 .badge[data-status="draft"] { color: var(--fg); }
 .badge[data-status="sent"] { color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: none; }

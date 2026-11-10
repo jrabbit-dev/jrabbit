@@ -36,6 +36,8 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
   private presenceTimer: NodeJS.Timeout | null = null;
   /** An agent in another jrabbit process (MCP session or `jrabbit wait`) is waiting for pins. */
   private elsewhere: AgentState = "none";
+  /** Last closed state the overlays were told about: `jrabbit close` runs in another process. */
+  private closedSeen = false;
   private clients = new Set<http.ServerResponse>();
   private pendingAfter = new Map<string, { selector: string; text: string; path: string; done: (pin: Pin | null) => void }>();
   private resolver: SourceResolver;
@@ -82,6 +84,8 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
     await this.store.init();
     this.token ||= await this.store.token();
     this.target = target;
+    await this.store.setClosed(false);
+    await this.store.beat("human");
     if (!this.port) {
       this.port = await this.listen(preferredPort);
       this.watchStore();
@@ -129,6 +133,8 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
   /** Share presence with other jrabbit processes on the same store, through heartbeat files. */
   private async syncPresence(): Promise<void> {
     if (this.clients.size) await this.store.beat("overlay");
+    const closed = this.store.isClosed();
+    if (closed !== this.closedSeen) this.broadcastState();
     const listening = await this.store.fresh("agent");
     const next: AgentState = listening ? "listening" : this.elsewhere === "none" ? "none" : "connected";
     if (next !== this.elsewhere) {
@@ -285,6 +291,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       });
       res.write(": hi\n\n");
       this.clients.add(res);
+      void this.store.beat("human");
       const ping = setInterval(() => res.write(": ping\n\n"), 15000);
       req.on("close", () => {
         clearInterval(ping);
@@ -305,16 +312,38 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       return json(res, 403, { error: "bad origin" });
     }
     const body = await readJson(req);
+    // Anything the human does in the review counts as activity: agents keep waiting for them.
+    if (path !== "/api/done" && !path.endsWith("/after")) void this.store.beat("human");
 
     if (path === "/api/pins" && req.method === "POST") {
       const input = body as NewPinInput;
       if (!input?.comment?.trim()) return json(res, 400, { error: "comment required" });
       if (!input.element?.selector || !input.element.rect) return json(res, 400, { error: "element required" });
       const { source, chain } = await this.resolver.resolve(input.debug ?? []);
-      const { debug: _d, shot, ...rest } = input;
+      const { debug: _d, shot, send, ...rest } = input;
       const pin = await this.store.createPin(rest, source, chain, shot);
+      if (send) {
+        const sent = await this.sendDrafts();
+        return json(res, 200, sent.find((p) => p.id === pin.id) ?? pin);
+      }
       this.broadcastState();
       return json(res, 200, pin);
+    }
+
+    if (path === "/api/done" && req.method === "POST") {
+      await this.close();
+      return json(res, 200, { closed: true });
+    }
+
+    if (path === "/api/approve-all" && req.method === "POST") {
+      const resolved = (await this.store.listPins()).filter((p) => p.status === "resolved");
+      for (const r of resolved) {
+        await this.store.updatePin(r.id, (p) => {
+          if (p.status === "resolved") this.store.setStatus(p, "approved", "human");
+        });
+      }
+      this.broadcastState();
+      return json(res, 200, { approved: resolved.length });
     }
 
     if (path === "/api/send" && req.method === "POST") {
@@ -345,6 +374,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
           delete p.deliveredAt;
           p.sentAt = new Date().toISOString();
         });
+        if (pin) await this.store.setClosed(false);
         this.broadcastState();
         if (pin) this.emit("sent", [pin]);
         return json(res, pin ? 200 : 404, pin ?? { error: "not found" });
@@ -390,6 +420,12 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
     json(res, 404, { error: "not found" });
   }
 
+  /** End the review: agents stop waiting. Opening it again or sending a pin undoes it. */
+  async close(): Promise<void> {
+    await this.store.setClosed(true);
+    this.broadcastState();
+  }
+
   async sendDrafts(): Promise<Pin[]> {
     const drafts = (await this.store.listPins()).filter((p) => p.status === "draft");
     const sent: Pin[] = [];
@@ -400,6 +436,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       });
       if (pin) sent.push(pin);
     }
+    if (sent.length) await this.store.setClosed(false);
     this.broadcastState();
     if (sent.length) this.emit("sent", sent);
     return sent;
@@ -437,6 +474,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       rules: await this.store.listRules(),
       target: this.target?.origin ?? null,
       agent: this.agentState,
+      closed: (this.closedSeen = this.store.isClosed()),
     };
   }
 

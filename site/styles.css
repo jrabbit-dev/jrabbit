@@ -335,6 +335,19 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .facts li { padding-block: 14px; }
 .facts li + li { border-top: 1px solid var(--line); }
 
+/* Pricing: a price list, not cards. The only color marks the plan you can use today. */
+.plans { list-style: none; padding: 0; display: grid; }
+.plans li { display: grid; gap: 10px; padding-block: 22px; border-top: 1px solid var(--line); }
+.plans li:last-child { border-bottom: 1px solid var(--line); }
+.plan-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 24px; }
+.plans h3 { font-size: var(--t-md); font-weight: 500; letter-spacing: -0.01em; }
+.price { font-size: var(--t-lg); font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.price span { font-size: var(--t-sm); font-weight: 400; letter-spacing: 0; color: var(--ink-2); }
+.plans li > p:not(.tag) { color: var(--ink-2); max-width: 34rem; text-wrap: pretty; }
+.tag { justify-self: start; font: 0.75rem/1 var(--mono); color: var(--ink-2); padding: 5px 7px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--line); }
+.tag[data-now] { color: #000; background: var(--accent); box-shadow: none; }
+.hint code { padding: 0.1em 0.35em; background: var(--wash); border-radius: 4px; color: var(--ink); }
+
 /* FAQ */
 .faq { max-width: 40rem; }
 .faq details + details { border-top: 1px solid var(--line); }

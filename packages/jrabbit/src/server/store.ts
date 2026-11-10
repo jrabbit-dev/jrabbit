@@ -13,7 +13,8 @@ const GITIGNORE = `# jrabbit local store. Only rules/ is meant to be versioned.
 
 const now = () => new Date().toISOString();
 
-export type Heartbeat = "agent" | "overlay";
+/** agent: an agent is waiting for pins. overlay: a browser has the review open. human: the human did something in the review. */
+export type Heartbeat = "agent" | "overlay" | "human";
 
 function alive(pid: number | undefined): boolean {
   if (!pid) return false;
@@ -236,6 +237,26 @@ export class Store {
   async fresh(name: Heartbeat, ms = 4000): Promise<boolean> {
     const s = await stat(join(this.dir, `.${name}`)).catch(() => null);
     return !!s && Date.now() - s.mtimeMs < ms;
+  }
+
+  /** Milliseconds since the last beat, or null when there never was one. */
+  async age(name: Heartbeat): Promise<number | null> {
+    const s = await stat(join(this.dir, `.${name}`)).catch(() => null);
+    return s ? Date.now() - s.mtimeMs : null;
+  }
+
+  /**
+   * The human (or the agent, on their word) ended the review. Agents stop waiting until
+   * the review is opened again or the human sends another pin.
+   */
+  async setClosed(closed: boolean): Promise<void> {
+    const file = join(this.dir, ".closed");
+    if (closed) await writeFile(file, "").catch(() => undefined);
+    else await rm(file, { force: true }).catch(() => undefined);
+  }
+
+  isClosed(): boolean {
+    return existsSync(join(this.dir, ".closed"));
   }
 
   private async lastNumber(): Promise<number> {

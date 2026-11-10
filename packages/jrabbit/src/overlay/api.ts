@@ -22,6 +22,8 @@ export class Api {
   deletePin = (id: string) => this.call("DELETE", `/pins/${id}`);
   send = () => this.call<{ sent: number }>("POST", "/send");
   approve = (id: string) => this.call<Pin>("POST", `/pins/${id}/approve`);
+  approveAll = () => this.call<{ approved: number }>("POST", "/approve-all");
+  done = () => this.call<{ closed: boolean }>("POST", "/done");
   reopen = (id: string, note: string) => this.call<Pin>("POST", `/pins/${id}/reopen`, { note });
   after = (id: string, shot: string | null) => this.call("POST", `/pins/${id}/after`, { shot });
   approveRule = (slug: string) => this.call("POST", `/rules/${slug}/approve`);

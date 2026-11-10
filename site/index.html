@@ -6,7 +6,7 @@
     <title>jrabbit · Your partner for shipping products</title>
     <meta
       name="description"
-      content="Your partner for shipping products. Show Claude Code, Codex or Cursor what you want changed in your running app. Your agent edits the right file and shows you the result."
+      content="Your partner for shipping products. Point at what is off in your running app and send it. Claude Code, Codex or Cursor fixes it while you keep looking."
     />
     <meta name="theme-color" content="#ffffff" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -28,6 +28,7 @@
         jrabbit
       </a>
       <nav aria-label="Links">
+        <a class="roll" href="#pricing"><span>Pricing</span></a>
         <a class="roll" href="/start.md"><span>Setup guide</span></a>
         <a class="roll" href="https://github.com/jrabbit-dev/jrabbit"><span>GitHub</span></a>
       </nav>
@@ -50,22 +51,29 @@
         </div>
         <div class="hero-body">
           <p class="lede">
-            Show your agent what you want changed in your running app. It edits the right file and shows you the
-            result.
+            Point at what is off in your running app and send it. Your agent fixes it while you keep looking, and
+            shows you the before and after.
           </p>
           <div class="cta">
             <button class="primary" type="button" data-copy="prompt">Copy setup prompt</button>
-            <p class="hint">Paste it into Claude Code, Codex or Cursor. It installs jrabbit and opens your app.</p>
+            <p class="hint">
+              Paste it into Claude Code, Codex or Cursor. It installs jrabbit and opens your app. Or run
+              <code>npx jrabbit init</code> in your project.
+            </p>
           </div>
         </div>
       </section>
 
       <section class="row" id="problem">
-        <h2>Stop pasting screenshots into your terminal</h2>
+        <h2>Feedback that does not wait in line</h2>
         <div class="body">
           <p>
-            You screenshot the page, paste it, and explain which button you mean. The agent guesses the component and
-            edits the wrong file. Next session, you correct the same spacing again.
+            Shipping an interface is a hundred small corrections. Each one costs you a screenshot, a paste and a
+            paragraph about which button you mean. Then you watch the terminal to see if the agent understood.
+          </p>
+          <p>
+            jrabbit takes those steps out. You point, write one line and send. The fix lands on the page in front of
+            you, usually before you have found the next thing to change.
           </p>
         </div>
       </section>
@@ -75,21 +83,37 @@
         <ol class="steps">
           <li data-icon="open">
             <h3>Open</h3>
-            <p>Ask your agent to open a review of localhost:3000. jrabbit serves your app with the overlay on top and never edits your code.</p>
+            <p>Tell your agent to open a jrabbit review. Your app opens with the jrabbit bar on top. Your code is not touched.</p>
           </li>
           <li data-icon="point">
             <h3>Point</h3>
-            <p>Press P, click an element and write the change. Add as many pins as you need, then press Send.</p>
+            <p>Press P, click the element, write what should change and press ⌘↵. That sends it. Add several first if you want them fixed together.</p>
           </li>
           <li data-icon="fix">
             <h3>Fix</h3>
-            <p>Your agent receives every pin with your comment, a screenshot, the selector and the file and line, and edits the code.</p>
+            <p>Your agent gets your comment with a screenshot and the exact file and line. It edits the code without asking you to confirm.</p>
           </li>
           <li data-icon="check">
             <h3>Check</h3>
-            <p>Each pin comes back with a before and after shot. Approve it, or reopen it with a note.</p>
+            <p>The page updates and the pin shows before, after and how long the fix took. Approve it, or reopen it with a note.</p>
           </li>
         </ol>
+      </section>
+
+      <section class="row" id="once">
+        <h2>Send it once</h2>
+        <div class="body">
+          <p>
+            Other tools hand your note to the agent and hope it is listening. jrabbit keeps your agent on the review. It
+            waits for your pins, takes each one as you send it, and goes back to waiting when the fix is in.
+          </p>
+          <ul class="facts">
+            <li>In Claude Code, your agent cannot end its turn while your review is open.</li>
+            <li>In Codex and Cursor it waits in a loop, and picks up whatever you sent while it was busy.</li>
+            <li>Send five pins together and it fixes them in one pass.</li>
+            <li>It stops when you press Done, close the tab, or leave the review alone for half an hour.</li>
+          </ul>
+        </div>
       </section>
 
       <section class="row" id="agent">
@@ -149,13 +173,65 @@ Never a neutral gray like #999.</code></pre>
       </section>
 
       <section class="row" id="local">
-        <h2>Runs on your machine</h2>
-        <ul class="facts">
-          <li>One line to install. There is no account or API key.</li>
-          <li>Pins, screenshots and rules are files in <code>.jrabbit/</code> inside your project.</li>
-          <li>Pages behind a login work, because the review shares your dev server's cookies.</li>
-          <li>MIT licensed, with the code on GitHub.</li>
-        </ul>
+        <h2>Set up in one line</h2>
+        <div class="body">
+          <pre class="code" tabindex="0"><code>npx jrabbit init</code></pre>
+          <ul class="facts">
+            <li>It finds Claude Code, Codex and Cursor on your machine and sets up each one. Or paste the setup prompt and your agent does it for you.</li>
+            <li>There is no account and no API key.</li>
+            <li>Pins, screenshots and rules are files in <code>.jrabbit/</code> inside your project. Nothing leaves your machine.</li>
+            <li>Pages behind a login work, because the review shares your dev server's cookies.</li>
+            <li>MIT licensed, with the code on GitHub.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="row" id="pricing">
+        <h2>Pricing</h2>
+        <div class="body">
+          <p>Free while it is you and your agent. You pay when a client joins, once per project.</p>
+          <ul class="plans">
+            <li>
+              <div class="plan-head">
+                <h3>Solo</h3>
+                <p class="price">$0 <span>forever</span></p>
+              </div>
+              <p>Everything on this page: the review, the agent loop and your rules, on as many projects as you have. Open source.</p>
+              <p class="tag" data-now>Available now</p>
+            </li>
+            <li>
+              <div class="plan-head">
+                <h3>Client link</h3>
+                <p class="price">$9 <span>per project, once</span></p>
+              </div>
+              <p>
+                Send your client a link. They point at the live site without an account, and their pins reach your agent like
+                yours do. Each round ends with their sign-off. Pay once and the project keeps its link. Your first project is free.
+              </p>
+              <p class="tag">Opening soon</p>
+            </li>
+            <li>
+              <div class="plan-head">
+                <h3>Studio</h3>
+                <p class="price">$12 <span>a month</span></p>
+              </div>
+              <p>Client links on every project, with your own logo on them. It pays for itself from the second project of the month.</p>
+              <p class="tag">Opening soon</p>
+            </li>
+            <li>
+              <div class="plan-head">
+                <h3>Founder</h3>
+                <p class="price">$79 <span>once</span></p>
+              </div>
+              <p>Studio for life, for the first 300 people. Your name goes on the high-score board on this page.</p>
+              <p class="tag">Opening soon</p>
+            </li>
+          </ul>
+          <p class="fine">
+            A client link is a line on your quote, so most of the time your client pays for it. Want one of the 300 Founder
+            places? <a href="mailto:info@jrabbit.dev?subject=Founder%20place">Write to info@jrabbit.dev</a> and you get the first call.
+          </p>
+        </div>
       </section>
 
       <section class="row" id="faq">
@@ -165,20 +241,32 @@ Never a neutral gray like #999.</code></pre>
             <summary>Rather install it by hand?</summary>
             <div class="install">
               <div class="clients" role="tablist" aria-label="Install for">
-                <button type="button" role="tab" id="tab-claude" aria-controls="cmd" aria-selected="true" data-client="claude">Claude Code</button>
+                <button type="button" role="tab" id="tab-init" aria-controls="cmd" aria-selected="true" data-client="init">Any agent</button>
+                <button type="button" role="tab" id="tab-claude" aria-controls="cmd" aria-selected="false" tabindex="-1" data-client="claude">Claude Code</button>
                 <button type="button" role="tab" id="tab-codex" aria-controls="cmd" aria-selected="false" tabindex="-1" data-client="codex">Codex</button>
                 <button type="button" role="tab" id="tab-cursor" aria-controls="cmd" aria-selected="false" tabindex="-1" data-client="cursor">Cursor</button>
               </div>
-              <div class="cmd" id="cmd" role="tabpanel" aria-labelledby="tab-claude">
-                <pre><code id="cmd-text">claude mcp add jrabbit -- npx -y jrabbit</code></pre>
+              <div class="cmd" id="cmd" role="tabpanel" aria-labelledby="tab-init">
+                <pre><code id="cmd-text">npx jrabbit init</code></pre>
                 <button type="button" data-copy="cmd" aria-label="Copy install command">Copy</button>
               </div>
-              <p class="cmd-note" id="cmd-note">Run it from your project root.</p>
+              <p class="cmd-note" id="cmd-note">Run it from your project root. It sets up every agent it finds.</p>
             </div>
           </details>
           <details>
             <summary>Does jrabbit change my code?</summary>
             <p>No. It serves your app through a local proxy and adds the overlay there. Your agent makes the edits, the same way it does today.</p>
+          </details>
+          <details>
+            <summary>Do I have to tell my agent to check for feedback?</summary>
+            <p>
+              No. While the review is open your agent is waiting for your pins, and a sent pin is the request: it changes the
+              code without asking. If you send something while it is busy, it takes it next.
+            </p>
+          </details>
+          <details>
+            <summary>How do I stop it?</summary>
+            <p>Press Done in the Pins panel, close the review tab, or tell your agent you are done. Left alone for 30 minutes, it stops by itself.</p>
           </details>
           <details>
             <summary>Which agents does it work with?</summary>
@@ -197,7 +285,10 @@ Never a neutral gray like #999.</code></pre>
           </details>
           <details>
             <summary>What does it cost?</summary>
-            <p>Nothing. jrabbit is free and MIT licensed.</p>
+            <p>
+              Nothing while you work alone: that part is free and MIT licensed, with no limits. Paid plans start when you
+              bring a client into the review, from $9 per project. See <a href="#pricing">pricing</a>.
+            </p>
           </details>
         </div>
       </section>
