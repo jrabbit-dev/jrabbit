@@ -23,6 +23,19 @@ const MAX_WAIT_SECONDS = 55;
 const DEFAULT_WAIT_SECONDS = 50;
 /** open_review also starts the dev server probe and the proxy, so it waits a bit less. */
 const OPEN_WAIT_SECONDS = 45;
+/**
+ * resolve_feedback waits at most this long for after screenshots, however many pins it got,
+ * so a batch ends well before the client's 60 s limit even when the browser is elsewhere.
+ */
+const AFTER_SHOT_BUDGET_MS = 45_000;
+
+/**
+ * How long to wait for the after shot of the i-th pin in a batch. The overlay captures one
+ * after another, so later pins get more time, but never more than the batch budget.
+ */
+export function afterShotTimeout(i: number, budgetMs = AFTER_SHOT_BUDGET_MS): number {
+  return Math.min(15_000 + i * 4_000, budgetMs);
+}
 
 const INSTRUCTIONS = `jrabbit lets a human point at UI in their browser and leave feedback pins for you.
 
@@ -139,6 +152,8 @@ export interface McpOptions {
    * Off when the root was set explicitly (JRABBIT_ROOT).
    */
   clientRoots?: boolean;
+  /** Overall wait for after screenshots in one resolve_feedback call. Tests shorten it. */
+  afterShotBudgetMs?: number;
 }
 
 export function createMcpServer(store: Store, review: ReviewServer, version: string, options: McpOptions = {}): McpServer {
@@ -374,7 +389,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
     {
       title: "Resolve feedback",
       description:
-        "Mark pins as resolved after you changed the code: one with id + summary, or several with pins: [{id, summary}]. Captures after screenshots in the human's browser (several at once when batched) and returns before/after so you can verify. Idempotent. This does not approve: only the human approves.",
+        `Mark pins as resolved after you changed the code: one with id + summary, or several with pins: [{id, summary}]. Captures after screenshots in the human's browser (several at once when batched, ${AFTER_SHOT_BUDGET_MS / 1000} s at most) and returns before/after so you can verify. Idempotent. This does not approve: only the human approves.`,
       inputSchema: {
         id: z.string().optional().describe("Pin id (pin_…) or number, to resolve one pin"),
         summary: z.string().optional().describe("What you changed, in one or two sentences, for the human"),
@@ -415,22 +430,24 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
       if (!resolved.length) return fail(errors.join("\n"));
       review.broadcastState();
 
-      // The overlay captures one after another; later pins get more time.
-      const after = await Promise.all(resolved.map((p, i) => review.requestAfterShot(p, 15_000 + i * 4_000)));
+      const budget = options.afterShotBudgetMs ?? AFTER_SHOT_BUDGET_MS;
+      const after = await Promise.all(resolved.map((p, i) => review.requestAfterShot(p, afterShotTimeout(i, budget))));
       const pins = resolved.map((p, i) => after[i] ?? p);
       review.toast(`${pins.map((p) => `#${p.n}`).join(" ")} resolved`);
 
+      const captured = (p: Pin) => Boolean(p.shots.after && after[pins.indexOf(p)]);
       const afterShot = (p: Pin) =>
-        p.shots.after && after[pins.indexOf(p)]
-          ? "captured"
-          : review.connectedClients
-            ? "not captured (element not found or timeout)"
-            : "not captured (no browser connected)";
+        captured(p) ? "captured" : review.connectedClients ? "not captured" : "not captured (no browser connected)";
+      const missed = review.connectedClients ? pins.filter((p) => !captured(p)) : [];
+      const paths = [...new Set(missed.map((p) => p.page.path))];
+      const notice = missed.length
+        ? `The browser did not capture ${missed.map((p) => `#${p.n}`).join(" ")} in time. The human is probably on another page than ${paths.join(", ")}, or the element is gone. Ask them to open ${paths.length === 1 ? "that page" : "those pages"}, then resolve ${missed.length === 1 ? "that pin" : "those pins"} again to capture the after shot.`
+        : undefined;
       const next = "Compare before/after. If it is not right, fix it and resolve again. Then call wait_for_feedback: the human approves, reopens or sends more pins in the browser.";
       const summaryText =
         pins.length === 1 && !batch
-          ? { pin: formatPin(pins[0]!), afterShot: afterShot(pins[0]!), next }
-          : { resolved: pins.map((p) => ({ pin: formatPin(p), afterShot: afterShot(p) })), ...(errors.length ? { errors } : {}), next };
+          ? { pin: formatPin(pins[0]!), afterShot: afterShot(pins[0]!), ...(notice ? { notice } : {}), next }
+          : { resolved: pins.map((p) => ({ pin: formatPin(p), afterShot: afterShot(p) })), ...(errors.length ? { errors } : {}), ...(notice ? { notice } : {}), next };
       return { content: [text(summaryText), ...(await pinContent(store, pins, ["before", "after"]))] };
     },
   );
