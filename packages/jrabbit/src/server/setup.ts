@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Store } from "./store.js";
 
@@ -20,12 +20,17 @@ export interface StopInput {
 /** A session that never touched jrabbit is doing other work in the same project: leave it alone. */
 async function sessionUsesJrabbit(transcript: string | undefined): Promise<boolean> {
   if (!transcript) return true;
+  // One handle for the size check and the read, so both look at the same file.
+  const handle = await open(transcript, "r").catch(() => null);
+  if (!handle) return true;
   try {
-    const { size } = await stat(transcript);
+    const { size } = await handle.stat();
     if (size > 64 * 1024 * 1024) return true;
-    return (await readFile(transcript, "utf8")).includes("jrabbit");
+    return (await handle.readFile("utf8")).includes("jrabbit");
   } catch {
     return true;
+  } finally {
+    await handle.close();
   }
 }
 
@@ -65,17 +70,20 @@ const MAX_IGNORED = 2;
  * blocks it answered without waiting for pins in between, and let it stop after a few.
  */
 async function givingUp(store: Store, input: StopInput): Promise<boolean> {
+  // The file holds when the last block happened and how many were ignored in a row.
   const file = join(store.dir, ".hook");
-  const last = await stat(file).catch(() => null);
-  const agent = await stat(join(store.dir, ".agent")).catch(() => null);
-  const waitedSince = !last || (agent !== null && agent.mtimeMs > last.mtimeMs);
-  const ignored = input.stop_hook_active && !waitedSince ? Number(await readFile(file, "utf8").catch(() => "0")) + 1 : 0;
-  if (ignored >= MAX_IGNORED) {
-    await rm(file, { force: true });
-    return true;
+  let last: { at: number; ignored: number } | null = null;
+  try {
+    last = JSON.parse(await readFile(file, "utf8")) as { at: number; ignored: number };
+  } catch {
+    /* first block, or an unreadable file: start counting again */
   }
-  await writeFile(file, String(ignored)).catch(() => undefined);
-  return false;
+  const sinceWait = await store.age("agent");
+  const waitedSince = !last || (sinceWait !== null && Date.now() - sinceWait > last.at);
+  const ignored = input.stop_hook_active && !waitedSince ? (Number(last?.ignored) || 0) + 1 : 0;
+  const giveUp = ignored >= MAX_IGNORED;
+  await writeFile(file, JSON.stringify({ at: Date.now(), ignored: giveUp ? 0 : ignored })).catch(() => undefined);
+  return giveUp;
 }
 
 // ---------- init: one command to set jrabbit up for every agent on this machine ----------
@@ -111,8 +119,12 @@ export interface InitStep {
 export const packageSpec = (version: string) => (/^\d+\.\d+\.\d+/.test(version) ? `jrabbit@${version}` : "jrabbit");
 
 async function readJson(file: string): Promise<Record<string, any>> {
-  if (!existsSync(file)) return {};
-  const text = (await readFile(file, "utf8")).trim();
+  const text = (
+    await readFile(file, "utf8").catch((err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT") return "";
+      throw err;
+    })
+  ).trim();
   if (!text) return {};
   const data = JSON.parse(text);
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("not a JSON object");
