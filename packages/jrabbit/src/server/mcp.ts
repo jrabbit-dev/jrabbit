@@ -181,6 +181,8 @@ export interface McpOptions {
   afterShotBudgetMs?: number;
   /** How long the review may sit untouched before the agent stops waiting. Tests shorten it. */
   idleMs?: number;
+  /** How long a wait goes on with no browser on the review. Tests shorten it. */
+  noBrowserMs?: number;
 }
 
 export function createMcpServer(store: Store, review: ReviewServer, version: string, options: McpOptions = {}): McpServer {
@@ -210,6 +212,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
   /** Known once the client has initialized, which is before any tool call. */
   const cap = () => waitCap(server.server.getClientVersion()?.name);
   const idleMs = options.idleMs ?? IDLE_MS;
+  const noBrowserMs = options.noBrowserMs ?? NO_BROWSER_MS;
   let waiting = 0;
   /** open_review ran and no browser has connected since: do not reopen the browser in a loop. */
   let reopenedForNobody = false;
@@ -226,7 +229,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
       let browserSeen = Date.now();
       while (!claim.pins.length && Date.now() < deadline && !extra.signal.aborted && !store.isClosed()) {
         if (await review.overlayConnected()) browserSeen = Date.now();
-        else if (Date.now() - browserSeen > NO_BROWSER_MS) break;
+        else if (Date.now() - browserSeen > noBrowserMs) break;
         await store.beat("agent");
         await new Promise<void>((resolve) => {
           const done = () => {

@@ -346,6 +346,23 @@ describe("MCP server", () => {
   });
 });
 
+describe("a wait with no browser on the review", () => {
+  it("ends early instead of running out the whole wait", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jrabbit-nobrowser-"));
+    const lone = new Store(root);
+    await lone.init();
+    const server = createMcpServer(lone, new ReviewServer(lone, join(root, "overlay.js")), "test", { noBrowserMs: 500 });
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const c = new Client({ name: "test", version: "0" });
+    await Promise.all([server.connect(serverSide), c.connect(clientSide)]);
+    const started = Date.now();
+    const res = (await c.callTool({ name: "wait_for_feedback", arguments: { timeout_seconds: 50 } })) as { content: Array<{ text?: string }> };
+    expect(JSON.parse(res.content[0]!.text!).status).toBe("timeout");
+    expect(Date.now() - started).toBeLessThan(6000);
+    await c.close();
+  }, 10_000);
+});
+
 describe("waitCap", () => {
   it("waits long in Claude Code and under 60 s everywhere else", () => {
     expect(waitCap("claude-code", undefined)).toBe(270);
