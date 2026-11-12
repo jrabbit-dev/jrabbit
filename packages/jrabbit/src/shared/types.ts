@@ -54,6 +54,8 @@ export interface Pin {
   /** Owner components from the element up, each with its source location. */
   sourceChain: SourceLocation[];
   shots: { before?: string; after?: string };
+  /** The before shot is still on its way from the browser: the pin was sent without waiting for it. */
+  shotPending?: boolean;
   resolution?: { summary: string; at: string };
   history: PinEvent[];
   createdAt: string;
@@ -98,6 +100,8 @@ export interface NewPinInput {
   debug: DebugEntry[];
   /** PNG data URL. */
   shot?: string | null;
+  /** The before shot follows in its own request, so the pin does not wait for it. */
+  shotLater?: boolean;
   /** Send the pin (and any waiting drafts) to the agent right away, in the same request. */
   send?: boolean;
 }

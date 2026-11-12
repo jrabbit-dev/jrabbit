@@ -183,6 +183,18 @@ export async function capture(el: Element, host: Element): Promise<string | null
   if (r.width < 1 || r.height < 1) return null;
   const scale = Math.min(window.devicePixelRatio || 1, 2, MAX_SHOT_SIDE / Math.max(r.width, r.height));
   try {
+    // A capture that hangs must not hold anything: give up and go without the shot.
+    return await Promise.race([shoot(el, host, scale), new Promise<null>((r) => setTimeout(() => r(null), CAPTURE_TIMEOUT_MS))]);
+  } catch {
+    return null;
+  }
+}
+
+/** Longest a single screenshot may take. */
+const CAPTURE_TIMEOUT_MS = 8000;
+
+async function shoot(el: Element, host: Element, scale: number): Promise<string | null> {
+  try {
     return await domToPng(el, {
       scale,
       backgroundColor: backgroundOf(el),

@@ -39,7 +39,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
   /** Last closed state the overlays were told about: `jrabbit close` runs in another process. */
   private closedSeen = false;
   private clients = new Set<http.ServerResponse>();
-  private pendingAfter = new Map<string, { selector: string; text: string; path: string; done: (pin: Pin | null) => void }>();
+  private pendingAfter = new Map<string, { selector: string; text: string; path: string; away: Set<string>; done: (pin: Pin | null) => void }>();
   private resolver: SourceResolver;
   target: URL | null = null;
   port: number | null = null;
@@ -321,7 +321,8 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       if (!input.element?.selector || !input.element.rect) return json(res, 400, { error: "element required" });
       const { source, chain } = await this.resolver.resolve(input.debug ?? []);
       const { debug: _d, shot, send, ...rest } = input;
-      const pin = await this.store.createPin(rest, source, chain, shot);
+      const { shotLater, ...fields } = rest;
+      const pin = await this.store.createPin(fields, source, chain, shot, shotLater === true);
       if (send) {
         const sent = await this.sendDrafts();
         return json(res, 200, sent.find((p) => p.id === pin.id) ?? pin);
@@ -351,7 +352,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
       return json(res, 200, { sent: sent.length });
     }
 
-    const pinAction = /^\/api\/pins\/([\w-]+)(?:\/(approve|reopen|after))?$/.exec(path);
+    const pinAction = /^\/api\/pins\/([\w-]+)(?:\/(approve|reopen|before|after))?$/.exec(path);
     if (pinAction) {
       const [, id, action] = pinAction;
       if (req.method === "DELETE" && !action) {
@@ -379,8 +380,28 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
         if (pin) this.emit("sent", [pin]);
         return json(res, pin ? 200 : 404, pin ?? { error: "not found" });
       }
+      if (action === "before") {
+        // The shot of a pin that was sent ahead of it. Only once, and only when expected.
+        if (!(await this.store.getPin(id!))?.shotPending) return json(res, 409, { error: "no shot expected" });
+        const rel = typeof body?.shot === "string" ? await this.store.saveShot(id!, "before", body.shot).catch(() => null) : null;
+        const pin = await this.store.updatePin(id!, (p) => {
+          delete p.shotPending;
+          if (rel) p.shots.before = rel;
+        });
+        this.broadcastState();
+        return json(res, pin ? 200 : 404, pin ?? { error: "not found" });
+      }
       if (action === "after") {
         const pending = this.pendingAfter.get(id!);
+        // A tab on another page cannot capture. When every open tab says so, stop waiting.
+        if (pending && body?.away === true && typeof body.tab === "string") {
+          pending.away.add(body.tab);
+          if (pending.away.size >= this.clients.size) {
+            this.pendingAfter.delete(id!);
+            pending.done(null);
+          }
+          return json(res, 200, { ok: true });
+        }
         let pin: Pin | null = null;
         if (typeof body?.shot === "string") {
           const rel = await this.store.saveShot(id!, "after", body.shot);
@@ -458,6 +479,7 @@ export class ReviewServer extends EventEmitter<ReviewEvents> {
         selector: pin.element.selector,
         text: pin.element.text,
         path: pin.page.path,
+        away: new Set<string>(),
         done: (p: Pin | null) => {
           clearTimeout(timer);
           resolve(p);

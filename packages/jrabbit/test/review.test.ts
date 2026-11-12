@@ -153,4 +153,57 @@ describe("ReviewServer", () => {
     expect(JSON.parse(res.body)).toEqual({ sent: 1 });
     expect(await sent).toHaveLength(1);
   });
+
+  const pinInput = (comment: string) => ({
+    comment,
+    page: { url: `${base}/`, path: "/", title: "t" },
+    viewport: { width: 1280, height: 800, dpr: 1 },
+    element: { selector: "h1", tag: "h1", text: "app", rect: { x: 0, y: 0, width: 1, height: 1 } },
+    debug: [],
+  });
+  const post = (path: string, body: unknown) => request(`/__jrabbit/api${path}`, { method: "POST", headers: auth(), body: JSON.stringify(body) });
+
+  it("sends a pin ahead of its before shot, and waits a moment for it on delivery", async () => {
+    const created = JSON.parse((await post("/pins", { ...pinInput("Later shot"), shotLater: true, send: true })).body);
+    expect(created).toMatchObject({ status: "open", shotPending: true });
+    expect(created.shots.before).toBeUndefined();
+
+    // The shot lands while the delivery is waiting for it.
+    setTimeout(() => void post(`/pins/${created.id}/before`, { shot: "data:image/png;base64,iVBORw0KGgo=" }), 150);
+    const [settled] = await store.settleShots([created], 2000);
+    expect(settled!.shotPending).toBeUndefined();
+    expect(settled!.shots.before).toContain(`${created.id}-before.png`);
+
+    // Only once: a second upload cannot replace the shot.
+    expect((await post(`/pins/${created.id}/before`, { shot: "data:image/png;base64,AAAA" })).status).toBe(409);
+  });
+
+  it("delivers without the shot when it does not arrive in time", async () => {
+    const created = JSON.parse((await post("/pins", { ...pinInput("No shot"), shotLater: true, send: true })).body);
+    const started = Date.now();
+    const [settled] = await store.settleShots([created], 200);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(settled!.shotPending).toBe(true);
+    // A browser that could not capture says so, and the pin stops expecting a shot.
+    expect((await post(`/pins/${created.id}/before`, { shot: null })).status).toBe(200);
+    expect((await store.getPin(created.id))!.shotPending).toBeUndefined();
+  });
+
+  it("stops waiting for an after shot when every open tab is on another page", async () => {
+    const tab = (): Promise<http.ClientRequest> =>
+      new Promise((resolve) => {
+        const req = http.get(`${base}/__jrabbit/api/events?t=${review.token}`, (res) => res.once("data", () => resolve(req)));
+      });
+    const tabs = [await tab(), await tab()];
+    const pin = (await store.listPins())[0]!;
+    const started = Date.now();
+    const shot = review.requestAfterShot(pin, 5000);
+    await post(`/pins/${pin.id}/after`, { away: true, tab: "a" });
+    await post(`/pins/${pin.id}/after`, { away: true, tab: "a" }); // the same tab, reloaded
+    expect(await Promise.race([shot, new Promise((r) => setTimeout(() => r("waiting"), 150))])).toBe("waiting");
+    await post(`/pins/${pin.id}/after`, { away: true, tab: "b" });
+    expect(await shot).toBeNull();
+    expect(Date.now() - started).toBeLessThan(2000);
+    for (const t of tabs) t.destroy();
+  });
 });

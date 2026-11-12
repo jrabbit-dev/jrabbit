@@ -25,7 +25,11 @@ export class Api {
   approveAll = () => this.call<{ approved: number }>("POST", "/approve-all");
   done = () => this.call<{ closed: boolean }>("POST", "/done");
   reopen = (id: string, note: string) => this.call<Pin>("POST", `/pins/${id}/reopen`, { note });
+  /** The before shot of a pin that was created without waiting for it. */
+  before = (id: string, shot: string | null) => this.call("POST", `/pins/${id}/before`, { shot });
   after = (id: string, shot: string | null) => this.call("POST", `/pins/${id}/after`, { shot });
+  /** This tab is on another page and cannot capture the after shot. */
+  away = (id: string, tab: string) => this.call("POST", `/pins/${id}/after`, { away: true, tab });
   approveRule = (slug: string) => this.call("POST", `/rules/${slug}/approve`);
   deleteRule = (slug: string) => this.call("DELETE", `/rules/${slug}`);
   archive = () => this.call<{ archived: number }>("POST", "/archive");

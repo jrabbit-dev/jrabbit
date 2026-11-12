@@ -196,6 +196,7 @@ async function wait(store: Store, secondsArg: string | undefined): Promise<void>
     const drafts = (await store.listPins()).filter((p) => p.status === "draft").length;
     return print({ status: "timeout", drafts, next: "Nothing sent yet. Run jrabbit wait again now. Do not end your turn until the human ends the review (status done) or says they are done (then run jrabbit close)." });
   }
+  pins = await store.settleShots(pins);
   const rules = (await store.listRules()).filter((r) => r.status === "approved");
   print({
     status: "feedback",
