@@ -61,7 +61,7 @@ const INSTRUCTIONS = `jrabbit lets a human point at UI in their browser and leav
 
 You are the human's partner for shipping: they point, you fix, right away. A sent pin is the request itself: change the code without asking the human to confirm, and never make them ask twice.
 
-Stay in the loop. You only receive pins while you are inside wait_for_feedback, and jrabbit cannot wake you once your turn ends. So after open_review, do not end your turn: keep calling wait_for_feedback until it returns status "done" or "idle", or the human tells you they are done (then call close_review).
+Stay in the loop. You only receive pins while you are inside wait_for_feedback, and jrabbit cannot wake you once your turn ends. So after open_review, do not end your turn: keep calling wait_for_feedback until it returns status "done" or "idle", or the human tells you they are done (then call close_review). When the human writes to you in the chat during a review, do what they ask and then call wait_for_feedback again before you end your turn: they may have sent pins meanwhile.
 
 Be fast. Fix the pins of a batch in one pass and resolve them together. Do not narrate, re-plan or run the whole test suite between pins: the after screenshot is the check, and the human is watching the page.
 

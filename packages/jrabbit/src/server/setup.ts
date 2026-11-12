@@ -9,7 +9,7 @@ export const IDLE_MS = 30 * 60_000;
 
 // ---------- Stop hook: the agent does not leave while the human is still reviewing ----------
 
-/** What Claude Code passes to a Stop hook on stdin. Every field is optional for us. */
+/** What Claude Code and Codex pass to a Stop hook on stdin. Every field is optional for us. */
 export interface StopInput {
   /** True when the agent is already continuing because a Stop hook blocked it. */
   stop_hook_active?: boolean;
@@ -104,7 +104,7 @@ const run: Run = (cmd, args, cwd) =>
 export interface InitOptions {
   /** Limit the setup to these clients. Default: every one found. */
   only?: Array<"claude" | "codex" | "cursor">;
-  /** Skip the Claude Code Stop hook. */
+  /** Skip the Stop hook (Claude Code and Codex). */
   hook?: boolean;
   run?: Run;
 }
@@ -145,7 +145,7 @@ export function mergeCursorConfig(config: Record<string, any>, spec: string): bo
   return true;
 }
 
-/** Add (or update) the jrabbit Stop hook in Claude Code settings, keeping every other hook. */
+/** Add (or update) the jrabbit Stop hook in Claude Code settings or Codex hooks.json, keeping every other hook. */
 export function mergeStopHook(settings: Record<string, any>, spec: string): boolean {
   const command = `npx -y ${spec} hook stop`;
   settings.hooks ??= {};
@@ -188,7 +188,7 @@ async function viaCli(bin: "claude" | "codex", spec: string, root: string, exec:
 
 /**
  * Set jrabbit up for every agent found: Claude Code and Codex through their own CLI, Cursor
- * through .cursor/mcp.json. Only MCP config (and one Claude Code hook) is written, never code.
+ * through .cursor/mcp.json. Only MCP config (and one Stop hook each for Claude Code and Codex) is written, never code.
  */
 export async function init(root: string, version: string, options: InitOptions = {}): Promise<InitStep[]> {
   const exec = options.run ?? run;
@@ -220,7 +220,22 @@ export async function init(root: string, version: string, options: InitOptions =
 
   if (wants("codex")) {
     const has = (await exec("codex", ["--version"], root)).ok;
-    if (has) steps.push({ client: "Codex", ...(await viaCli("codex", spec, root, exec)) });
+    if (has) {
+      const mcp = await viaCli("codex", spec, root, exec);
+      let note = mcp.note;
+      if (mcp.ok && options.hook !== false) {
+        // Codex reads the same Stop hook shape as Claude Code, from .codex/hooks.json.
+        const file = join(root, ".codex", "hooks.json");
+        try {
+          const hooks = await readJson(file);
+          if (mergeStopHook(hooks, spec)) await writeJson(file, hooks);
+          note += " · stays in the review until you press Done (type /hooks in Codex once to trust the hook)";
+        } catch (err) {
+          note += ` · could not add the Stop hook to .codex/hooks.json (${(err as Error).message})`;
+        }
+      }
+      steps.push({ client: "Codex", ok: mcp.ok, note });
+    }
     else if (asked("codex")) steps.push({ client: "Codex", ok: false, note: "the codex command is not on your PATH" });
   }
 

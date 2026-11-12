@@ -22,7 +22,7 @@ If it exists, skip to step 3.
 
 This makes the jrabbit tools load in the human's next sessions. Do not install anything globally.
 
-Run this from the project root. It finds Claude Code, Codex and Cursor and sets up each one. In Claude Code it also adds a Stop hook to `.claude/settings.local.json`, which keeps you in the review while the human has it open:
+Run this from the project root. It finds Claude Code, Codex and Cursor and sets up each one. In Claude Code and Codex it also adds a Stop hook (`.claude/settings.local.json`, `.codex/hooks.json`), which keeps you in the review while the human has it open. In Codex, ask the human to type `/hooks` once to trust it:
 
 ```sh
 npx -y jrabbit@0.2.0 init

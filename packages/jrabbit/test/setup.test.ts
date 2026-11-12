@@ -150,6 +150,19 @@ describe("init", () => {
     expect(cursor.mcpServers.jrabbit.args).toEqual(["-y", "jrabbit@0.2.0"]);
   });
 
+  it("adds the Stop hook for Codex too, next to hooks that are already there", async () => {
+    const root = project();
+    mkdirSync(join(root, ".codex"));
+    const other = { hooks: [{ type: "command", command: "echo done" }] };
+    writeFileSync(join(root, ".codex", "hooks.json"), JSON.stringify({ hooks: { Stop: [other] } }));
+    const run: Run = async (cmd, args) => ({ ok: cmd === "codex" && args[1] !== "get", out: "" });
+    const steps = await init(root, "0.2.0", { run, only: ["codex"] });
+    expect(steps[0]).toMatchObject({ client: "Codex", ok: true });
+    expect(steps[0]!.note).toContain("/hooks");
+    const hooks = JSON.parse(readFileSync(join(root, ".codex", "hooks.json"), "utf8"));
+    expect(hooks.hooks.Stop).toEqual([other, { hooks: [{ type: "command", command: "npx -y jrabbit@0.2.0 hook stop", timeout: 20 }] }]);
+  });
+
   it("skips the hook when asked, and says why a requested agent is missing", async () => {
     const root = project();
     const run: Run = async (cmd, args) => ({ ok: cmd === "claude" && args[1] !== "get", out: "" });

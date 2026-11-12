@@ -41,7 +41,7 @@ codex mcp add jrabbit -- npx -y jrabbit    # Codex
 jrabbit cannot wake an agent whose turn has ended, so it keeps the agent in the review instead:
 
 - The agent waits for your pins for as long as its client allows per call (4.5 minutes in Claude Code, 55 seconds elsewhere; set `JRABBIT_WAIT_SECONDS` to change it) and waits again.
-- In Claude Code, `jrabbit init` adds a Stop hook to `.claude/settings.local.json`: the agent cannot end its turn while you have the review open or a sent pin is unresolved. `npx jrabbit init --no-hook` skips it.
+- In Claude Code and Codex, `jrabbit init` adds a Stop hook (`.claude/settings.local.json`, `.codex/hooks.json`): the agent cannot end its turn while you have the review open or a sent pin is unresolved, even when you were talking to it in the chat. In Codex, type `/hooks` once to trust it. `npx jrabbit init --no-hook` skips it.
 - The review ends when you press **Done** in the Pins panel, close the tab, tell the agent you are done, or leave it untouched for 30 minutes.
 
 Everything is driven from the agent. The UI is only for what needs eyes.
