@@ -31,7 +31,7 @@ codex mcp add jrabbit -- npx -y jrabbit    # Codex
 ## How it works
 
 1. **Open** — ask your agent to open a jrabbit review. jrabbit proxies your dev server and injects the overlay. Your code is never touched.
-2. **Point** — press **P**, click an element, write what you want and press **⌘↵**. It is sent. Use **Add** to queue several and send them together.
+2. **Point** — press **P**, click an element, write what you want and press **⌘↵**. It is sent. Use **Add to queue** to line up several and send them together.
 3. **Fix** — your agent receives each pin with screenshot, selector, viewport and `file:line`, and edits the code without asking you to confirm.
 4. **Check** — every pin shows before/after and how long the fix took. Approve or reopen.
 5. **Remember** — corrections you repeat become rules in `.jrabbit/rules/`, versioned with your repo.

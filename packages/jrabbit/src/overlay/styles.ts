@@ -87,7 +87,11 @@ kbd { color: var(--muted); margin-left: 6px; font: inherit; }
   font: inherit; color: var(--fg); background: rgba(255,255,255,.05);
   border: 1px solid var(--line); border-radius: 6px;
 }
-.composer .meta { color: var(--muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer .head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 8px; }
+.composer .meta { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer .link { flex: none; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+.composer .link:hover { color: var(--fg); }
+.btn.ghost { background: none; color: var(--muted); margin-right: auto; }
 .row { display: flex; gap: 6px; align-items: center; justify-content: flex-end; margin-top: 8px; }
 .row .grow { flex: 1; }
 .row.archive { margin: 0; padding: 10px 14px; justify-content: flex-start; }
