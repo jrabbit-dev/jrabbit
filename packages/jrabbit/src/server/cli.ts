@@ -91,7 +91,8 @@ async function setup(root: string, args: string[]): Promise<void> {
   }
   for (const s of steps) console.log(`${s.ok ? "✓" : "✗"} ${s.client.padEnd(12)} ${s.note}`);
   if (!steps.some((s) => s.ok)) process.exit(1);
-  await ping(VERSION, "init"); // counts the install even if no review is ever opened
+  // Counts the install even if no review is ever opened. The notice is printed below, once.
+  await ping(VERSION, "init", { notice: () => {} });
   console.log(
     [
       "",
