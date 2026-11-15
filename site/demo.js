@@ -60,6 +60,16 @@ function announce(text) {
 
 /* ───────── Copy buttons ───────── */
 
+/** Counts a copy: how many visitors set out to install. No id, nothing about the visitor. */
+function counted(name) {
+  try {
+    navigator.sendBeacon(`/api/count?e=${name}`);
+    window.va?.("event", { name });
+  } catch {
+    // counting never gets in the way of the copy
+  }
+}
+
 async function copy(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -117,6 +127,7 @@ for (const btn of document.querySelectorAll("[data-copy]")) {
     swapLabel(span, ok ? "Copied" : "Copy failed");
     btn.toggleAttribute("data-done", ok);
     announce(ok ? (btn.dataset.copy === "prompt" ? "Setup prompt copied" : client === "cursor" ? "Cursor config copied" : "Command copied") : "Copy failed");
+    if (ok) counted(btn.dataset.copy === "prompt" ? "copy_prompt" : "copy_cmd");
     if (ok && btn.dataset.copy === "prompt") hop();
     clearTimeout(timer);
     timer = setTimeout(() => {

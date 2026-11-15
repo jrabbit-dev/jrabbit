@@ -50,9 +50,13 @@ Everything is driven from the agent. The UI is only for what needs eyes.
 
 See [CONTRIBUTING.md](https://github.com/jrabbit-dev/jrabbit/blob/main/CONTRIBUTING.md). Framework adapters (Vue, Svelte, Astro…) are especially welcome.
 
+## Usage count
+
+jrabbit sends one anonymous ping a day while you use it, so the project knows how many people do. It carries a random id (kept in `~/.jrabbit/telemetry.json`), the jrabbit version, your agent's name and your OS. Nothing about your project: no paths, URLs, pins or screenshots, and the IP address is not stored. Turn it off with `JRABBIT_TELEMETRY=0` or `DO_NOT_TRACK=1`; it is always off in CI.
+
 ## Security
 
-jrabbit is local by default: nothing leaves your machine unless you share it. Read the [security model](https://github.com/jrabbit-dev/jrabbit/blob/main/SECURITY.md#security-model). Report vulnerabilities privately, never in public issues; see [SECURITY.md](https://github.com/jrabbit-dev/jrabbit/blob/main/SECURITY.md).
+jrabbit is local by default: your code, pins and screenshots never leave your machine unless you share them. Read the [security model](https://github.com/jrabbit-dev/jrabbit/blob/main/SECURITY.md#security-model). Report vulnerabilities privately, never in public issues; see [SECURITY.md](https://github.com/jrabbit-dev/jrabbit/blob/main/SECURITY.md).
 
 ## License
 

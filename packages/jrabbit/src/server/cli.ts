@@ -5,6 +5,7 @@ import { ReviewServer } from "./review.js";
 import { formatPin, formatRule, runMcp } from "./mcp.js";
 import { openBrowser } from "./open-browser.js";
 import { init, packageSpec, stopDecision, type StopInput } from "./setup.js";
+import { ping, TELEMETRY_NOTICE, telemetryOff } from "./telemetry.js";
 
 declare const __VERSION__: string;
 const VERSION = typeof __VERSION__ === "string" ? __VERSION__ : "dev";
@@ -34,6 +35,7 @@ Environment
   JRABBIT_ROOT          Project root (default: the client's workspace, else the current directory)
   JRABBIT_PORT          Preferred port for the review server (default: 4100)
   JRABBIT_WAIT_SECONDS  Longest single wait for pins (default: 270 in Claude Code, 55 elsewhere)
+  JRABBIT_TELEMETRY=0   Turn off the anonymous usage ping (one a day: random id, version, agent, OS)
   JRABBIT_NO_OPEN=1     Do not open the browser
 `;
 
@@ -89,12 +91,14 @@ async function setup(root: string, args: string[]): Promise<void> {
   }
   for (const s of steps) console.log(`${s.ok ? "✓" : "✗"} ${s.client.padEnd(12)} ${s.note}`);
   if (!steps.some((s) => s.ok)) process.exit(1);
+  await ping(VERSION, "init"); // counts the install even if no review is ever opened
   console.log(
     [
       "",
       "Next: start your dev server, open a new agent session and say:",
       "  open a jrabbit review",
       "Then press P in the browser, click what you want changed, and send it.",
+      ...(telemetryOff(VERSION) ? [] : ["", TELEMETRY_NOTICE]),
     ].join("\n"),
   );
 }
@@ -148,6 +152,7 @@ async function open(store: Store, url: string | undefined): Promise<void> {
     process.exit(1);
   }
   console.log(`jrabbit reviewing ${url}\n→ ${reviewUrl}\nPins are saved in ${store.dir}. Ctrl+C to stop.`);
+  void ping(VERSION, "cli");
   review.on("sent", (pins) => {
     for (const p of pins) {
       const src = p.source ? `${p.source.file}:${p.source.line}` : "source unknown";

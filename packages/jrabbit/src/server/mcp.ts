@@ -10,6 +10,7 @@ import { openBrowser } from "./open-browser.js";
 import type { ReviewServer } from "./review.js";
 import type { Store } from "./store.js";
 import { log } from "./log.js";
+import { ping } from "./telemetry.js";
 import { took } from "../shared/took.js";
 
 type Content =
@@ -348,6 +349,7 @@ export function createMcpServer(store: Store, review: ReviewServer, version: str
         return fail(`Could not open review: ${(err as Error).message}`);
       }
       if (open !== false) openBrowser(reviewUrl);
+      void ping(version, server.server.getClientVersion()?.name);
       reopenedForNobody = !(await review.overlayConnected());
       const info = {
         reviewUrl,
