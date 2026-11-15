@@ -48,7 +48,7 @@ These are the guarantees jrabbit is built around. A change that breaks one of th
 
 1. **Local by default.** The proxy and every local server bind to `127.0.0.1` only, never `0.0.0.0`.
 2. **The overlay authenticates to the local server.** Requests from the overlay carry a per-session random token; requests from other origins are rejected (no DNS rebinding, no cross-site requests to the local server).
-3. **Nothing leaves your machine unless you ask.** No telemetry without explicit opt-in. Screenshots, recordings, transcripts and pins stay in `.jrabbit/` on disk. Only the `share` tool uploads anything, and only what that round contains.
+3. **Your work never leaves your machine unless you ask.** Screenshots, recordings, transcripts and pins stay in `.jrabbit/` on disk. Only the `share` tool uploads any of it, and only what that round contains. The one thing jrabbit sends on its own is an anonymous usage count: one ping a day with a random id, the jrabbit version, the agent's name and the OS, and nothing about the project. `JRABBIT_TELEMETRY=0` or `DO_NOT_TRACK=1` turns it off, and it is always off in CI.
 4. **Third-party services are opt-in.** Speech-to-text runs locally by default; any cloud provider requires explicit consent per use.
 5. **Approvals are human.** The agent can never mark a pin as approved by a person.
 6. **jrabbit does not edit your code.** Your coding agent does, under its own permission model. jrabbit only reads source files to resolve `file:line`. `jrabbit init` writes agent configuration and nothing else: the MCP entry through each client's own CLI, `.cursor/mcp.json`, and one Stop hook in `.claude/settings.local.json` (skip it with `--no-hook`).
