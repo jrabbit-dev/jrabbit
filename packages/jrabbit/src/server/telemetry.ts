@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 const ENDPOINT = "https://jrabbit.dev/api/ping";
 const TIMEOUT_MS = 2000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export const TELEMETRY_NOTICE =
   "jrabbit counts usage with one anonymous ping a day: a random id, the version, your agent and OS. Nothing about your project. Turn it off with JRABBIT_TELEMETRY=0.";
@@ -39,7 +40,9 @@ export async function ping(version: string, client: string | undefined, opts: Pi
     const file = join(dir, "telemetry.json");
     let state: { id?: string; day?: string } = {};
     try {
-      state = JSON.parse(readFileSync(file, "utf8"));
+      const saved = JSON.parse(readFileSync(file, "utf8"));
+      // Only a well-formed id is ever sent: whatever else the file holds stays on disk.
+      if (typeof saved?.id === "string" && UUID.test(saved.id)) state = { id: saved.id, day: String(saved.day ?? "") };
     } catch {
       // first run, or an unreadable file: start over
     }

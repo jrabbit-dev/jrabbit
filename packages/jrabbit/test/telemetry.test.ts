@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -43,6 +43,14 @@ describe("telemetry", () => {
     expect(calls[1]!.body.id).toBe(calls[0]!.body.id);
     expect(notices).toHaveLength(1); // only when the id is created
     expect(JSON.parse(readFileSync(join(dir, "telemetry.json"), "utf8")).day).toBe("2026-11-16");
+  });
+
+  it("never sends what a tampered file holds: it starts a fresh id", async () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "telemetry.json"), JSON.stringify({ id: "/Users/someone/secret-project", day: "2026-11-14" }));
+    const { calls, fetch } = ok();
+    expect(await ping("0.3.0", "codex", { dir, env: {}, fetch, notice: () => {} })).toBe("sent");
+    expect(calls[0]!.body.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("sends nothing when turned off", async () => {
