@@ -54,6 +54,6 @@
     "modern-screenshot": "^4.7.0",
     "preact": "^11.2.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
